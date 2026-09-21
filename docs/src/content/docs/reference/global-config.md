@@ -77,6 +77,9 @@ auto_fix:
   lint: 3
   ci: 3
 
+# auto_fix_min_severity:
+#   review: error # or: warning, info (unset fixes every severity)
+
 ci:
   rerun_transient: 0
   revalidate_repairs: false
@@ -735,6 +738,27 @@ For empty `commands.lint`, the document step's combined housekeeping pass also a
 Legacy alias: `auto_fix.babysit`.
 
 These are global defaults. Per-repo config can override individual steps.
+
+### auto_fix_min_severity
+
+The lowest finding severity the automatic fix loop may fix. It only narrows the loop that `auto_fix` enables: it never enables a loop, and it never changes which findings park for approval.
+
+|      |          |
+| ---- | -------- |
+| Type | `object` |
+
+| Field                          | Type     | Default | Description                                                              |
+| ------------------------------ | -------- | ------- | ------------------------------------------------------------------------ |
+| `auto_fix_min_severity.review` | `string` | unset   | `error`, `warning`, or `info`. Unset fixes every severity, as before.     |
+
+With `review: error`, an automatic review fix round fixes only `auto-fix` findings with severity `error`.
+Warnings and info are passed to the fixer as findings it must not fix, and are never fixed automatically.
+A warning still parks the Review step for approval, exactly as it does when no automatic attempt is left, so you or your agent decide what to do with it (fix it at the gate, approve, or file it for later).
+With `review: warning`, errors and warnings are fixed automatically and info is left alone.
+The `auto_fix.review` round budget and the park when it is spent are unchanged.
+An unknown value fails the config instead of falling back, so a typo cannot silently fix every severity.
+
+Per-repo config can override this value.
 
 ### ci.rerun_transient
 

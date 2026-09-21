@@ -187,6 +187,9 @@ type GlobalConfig struct {
 	SessionReuse  bool          `yaml:"-"`
 	ForgeProfiles ForgeProfiles `yaml:"forge_profiles"`
 	AutoFix       AutoFixRaw
+	// AutoFixMinSeverity narrows which findings the automatic fix loop may
+	// fix; a repo value overrides it field by field, like AutoFix.
+	AutoFixMinSeverity AutoFixMinSeverityRaw
 	// CI is the operator's own CI-step floor. It is the only place the rerun
 	// budget can be set for a repository whose default branch this machine's
 	// user does not control (the common case when contributing to someone
@@ -235,6 +238,7 @@ type globalConfigRaw struct {
 	LogLevel                string                     `yaml:"log_level"`
 	SessionReuse            *bool                      `yaml:"session_reuse"`
 	AutoFix                 AutoFixRaw                 `yaml:"auto_fix"`
+	AutoFixMinSeverity      AutoFixMinSeverityRaw      `yaml:"auto_fix_min_severity"`
 	CI                      CIRaw                      `yaml:"ci"`
 	Rebase                  RebaseRaw                  `yaml:"rebase"`
 	Commit                  GlobalCommitRaw            `yaml:"commit"`
@@ -282,8 +286,9 @@ type RepoConfig struct {
 	// BaseBranch trusted-only unless the repository opts into pushed settings,
 	// leaves TitleFormat on the pushed branch, and keeps Template and
 	// PublishIntent trusted-only.
-	AutoFix AutoFixRaw `yaml:"auto_fix"`
-	CI      CIRaw      `yaml:"ci"`
+	AutoFix            AutoFixRaw            `yaml:"auto_fix"`
+	AutoFixMinSeverity AutoFixMinSeverityRaw `yaml:"auto_fix_min_severity"`
+	CI                 CIRaw                 `yaml:"ci"`
 	// Rebase is gate-control: EffectiveRepoConfig keeps it trusted-only so a
 	// pushed branch cannot opt its own integration out of the shape the
 	// maintainer chose.
@@ -489,24 +494,25 @@ func RenderedInstructions(instructions string) string {
 
 func (c *RepoConfig) UnmarshalYAML(value *yaml.Node) error {
 	type repoConfigRaw struct {
-		Agent                  agentList    `yaml:"agent"`
-		Commands               Commands     `yaml:"commands"`
-		IgnorePatterns         []string     `yaml:"ignore_patterns"`
-		ProtectedPaths         []string     `yaml:"protected_paths"`
-		AllowRepoCommands      bool         `yaml:"allow_repo_commands"`
-		AutoFix                AutoFixRaw   `yaml:"auto_fix"`
-		CI                     CIRaw        `yaml:"ci"`
-		Rebase                 RebaseRaw    `yaml:"rebase"`
-		Commit                 CommitRaw    `yaml:"commit"`
-		Intent                 IntentRaw    `yaml:"intent"`
-		Test                   TestRaw      `yaml:"test"`
-		PR                     PRRaw        `yaml:"pr"`
-		Document               DocumentRaw  `yaml:"document"`
-		Review                 ReviewRaw    `yaml:"review"`
-		Gates                  []Gate       `yaml:"gates"`
-		DisableProjectSettings bool         `yaml:"disable_project_settings"`
-		NoCI                   bool         `yaml:"no_ci"`
-		Providers              ProvidersRaw `yaml:"providers"`
+		Agent                  agentList             `yaml:"agent"`
+		Commands               Commands              `yaml:"commands"`
+		IgnorePatterns         []string              `yaml:"ignore_patterns"`
+		ProtectedPaths         []string              `yaml:"protected_paths"`
+		AllowRepoCommands      bool                  `yaml:"allow_repo_commands"`
+		AutoFix                AutoFixRaw            `yaml:"auto_fix"`
+		AutoFixMinSeverity     AutoFixMinSeverityRaw `yaml:"auto_fix_min_severity"`
+		CI                     CIRaw                 `yaml:"ci"`
+		Rebase                 RebaseRaw             `yaml:"rebase"`
+		Commit                 CommitRaw             `yaml:"commit"`
+		Intent                 IntentRaw             `yaml:"intent"`
+		Test                   TestRaw               `yaml:"test"`
+		PR                     PRRaw                 `yaml:"pr"`
+		Document               DocumentRaw           `yaml:"document"`
+		Review                 ReviewRaw             `yaml:"review"`
+		Gates                  []Gate                `yaml:"gates"`
+		DisableProjectSettings bool                  `yaml:"disable_project_settings"`
+		NoCI                   bool                  `yaml:"no_ci"`
+		Providers              ProvidersRaw          `yaml:"providers"`
 	}
 	var raw repoConfigRaw
 	if err := value.Decode(&raw); err != nil {
@@ -519,6 +525,7 @@ func (c *RepoConfig) UnmarshalYAML(value *yaml.Node) error {
 	c.ProtectedPaths = raw.ProtectedPaths
 	c.AllowRepoCommands = raw.AllowRepoCommands
 	c.AutoFix = raw.AutoFix
+	c.AutoFixMinSeverity = raw.AutoFixMinSeverity
 	c.CI = raw.CI
 	c.Rebase = raw.Rebase
 	c.Commit = raw.Commit
@@ -552,6 +559,14 @@ type AutoFixRaw struct {
 	CI       *int `yaml:"ci"`
 	Babysit  *int `yaml:"babysit"`
 	Rebase   *int `yaml:"rebase"`
+}
+
+// AutoFixMinSeverityRaw is the YAML representation of the per-step minimum
+// severity the automatic fix loop may fix. An empty value means "not set".
+// Only review is supported: it is the one step whose findings are graded by
+// an agent and whose automatic loop is opt-in (auto_fix.review defaults to 0).
+type AutoFixMinSeverityRaw struct {
+	Review string `yaml:"review"`
 }
 
 // CIRaw is the YAML representation of CI-step settings.
@@ -644,6 +659,16 @@ type AutoFix struct {
 	Rebase   int
 }
 
+// AutoFixMinSeverity holds the resolved per-step minimum severity the
+// automatic fix loop may fix. An empty value keeps every severity eligible,
+// which is the behavior without the option. Findings below the minimum are
+// never fixed automatically; they reach the approval gate exactly as a
+// finding with no automatic fix attempt left does. It only ever narrows the
+// automatic loop, never what parks.
+type AutoFixMinSeverity struct {
+	Review string
+}
+
 // Config is the merged result of global + per-repo configuration.
 type Config struct {
 	ReplayGlobalYAML      []byte
@@ -676,19 +701,20 @@ type Config struct {
 	// Gates are the repository's extra checks, already trusted-only by the
 	// time they reach here (EffectiveRepoConfig sourced them from the trusted
 	// default-branch copy).
-	Gates          []Gate
-	IgnorePatterns []string
-	ProtectedPaths []string
-	AutoFix        AutoFix
-	CI             CI
-	Rebase         Rebase
-	Commit         Commit
-	Intent         Intent
-	Test           Test
-	Document       Document
-	Review         Review
-	PR             PR
-	ForgeProfiles  ForgeProfiles
+	Gates              []Gate
+	IgnorePatterns     []string
+	ProtectedPaths     []string
+	AutoFix            AutoFix
+	AutoFixMinSeverity AutoFixMinSeverity
+	CI                 CI
+	Rebase             Rebase
+	Commit             Commit
+	Intent             Intent
+	Test               Test
+	Document           Document
+	Review             Review
+	PR                 PR
+	ForgeProfiles      ForgeProfiles
 	// DisableProjectSettings is the resolved, trusted-only opt-out (see the
 	// RepoConfig field). When true, gate agents are launched with their
 	// project-level settings/instructions suppressed; the daemon fails the run
@@ -1187,6 +1213,12 @@ auto_fix:
   review: 0
   document: 3
   ci: 3
+
+# Optional: the lowest finding severity the automatic review fix loop may fix
+# (error, warning, or info). Unset fixes every severity. With "error", only
+# blocking findings are fixed automatically; warnings still park for approval.
+# auto_fix_min_severity:
+#   review: error
 
 # How many times the CI step may re-run a single check the provider reported as
 # cancelled before that check reaches an approval gate instead of the fix agent.
@@ -2116,6 +2148,9 @@ func LoadGlobalFromBytes(data []byte) (*GlobalConfig, error) {
 	if err := validateRebaseRaw(raw.Rebase); err != nil {
 		return nil, fmt.Errorf("parse global config: %w", err)
 	}
+	if err := validateAutoFixMinSeverityRaw(raw.AutoFixMinSeverity); err != nil {
+		return nil, fmt.Errorf("parse global config: %w", err)
+	}
 
 	if len(raw.Agent) > 0 {
 		cfg.Agents = copyAgents(raw.Agent)
@@ -2242,6 +2277,7 @@ func LoadGlobalFromBytes(data []byte) (*GlobalConfig, error) {
 		raw.AutoFix.CI = raw.AutoFix.Babysit
 	}
 	cfg.AutoFix = raw.AutoFix
+	cfg.AutoFixMinSeverity = raw.AutoFixMinSeverity
 	cfg.CI = raw.CI
 	cfg.Rebase = raw.Rebase
 	cfg.Commit = raw.Commit
@@ -2390,6 +2426,9 @@ func parseRepoConfig(data []byte) (*RepoConfig, error) {
 		return nil, fmt.Errorf("parse repo config: %w", err)
 	}
 	if err := validateRebaseRaw(cfg.Rebase); err != nil {
+		return nil, fmt.Errorf("parse repo config: %w", err)
+	}
+	if err := validateAutoFixMinSeverityRaw(cfg.AutoFixMinSeverity); err != nil {
 		return nil, fmt.Errorf("parse repo config: %w", err)
 	}
 	cfg.PR.BaseBranch = strings.TrimSpace(cfg.PR.BaseBranch)
@@ -2962,6 +3001,34 @@ func applyAutoFixOverrides(dst *AutoFix, src *AutoFixRaw) {
 	}
 }
 
+// validateAutoFixMinSeverityRaw fails the config closed on an unrecognized
+// severity. Silently ignoring a typo ("errors") would let the automatic loop
+// keep fixing every severity the operator asked it to leave for the gate.
+func validateAutoFixMinSeverityRaw(r AutoFixMinSeverityRaw) error {
+	v := types.NormalizeFindingSeverity(r.Review)
+	if v == "" || types.IsKnownFindingSeverity(v) {
+		return nil
+	}
+	return fmt.Errorf("auto_fix_min_severity.review: %q is not a valid severity (want %q, %q, or %q)", r.Review, types.FindingSeverityError, types.FindingSeverityWarning, types.FindingSeverityInfo)
+}
+
+// applyAutoFixMinSeverityOverrides applies set raw values onto dst. The value
+// was already validated at parse time; an empty string is "not set".
+func applyAutoFixMinSeverityOverrides(dst *AutoFixMinSeverity, src *AutoFixMinSeverityRaw) {
+	if v := types.NormalizeFindingSeverity(src.Review); v != "" {
+		dst.Review = v
+	}
+}
+
+// AutoFixMinSeverityFor returns the minimum severity the automatic fix loop
+// may fix for a given step, or "" when every severity is eligible.
+func (c *Config) AutoFixMinSeverityFor(step types.StepName) string {
+	if step == types.StepReview {
+		return c.AutoFixMinSeverity.Review
+	}
+	return ""
+}
+
 // AutoFixLimit returns the max auto-fix attempts for a given step.
 // Steps without auto-fix support return 0.
 func (c *Config) AutoFixLimit(step types.StepName) int {
@@ -2990,6 +3057,9 @@ func Merge(global *GlobalConfig, repo *RepoConfig) *Config {
 	af := autoFixDefaults()
 	applyAutoFixOverrides(&af, &global.AutoFix)
 	applyAutoFixOverrides(&af, &repo.AutoFix)
+	var afMin AutoFixMinSeverity
+	applyAutoFixMinSeverityOverrides(&afMin, &global.AutoFixMinSeverity)
+	applyAutoFixMinSeverityOverrides(&afMin, &repo.AutoFixMinSeverity)
 
 	ci := ciDefaults()
 	// The operator's global value is a machine-wide floor they can always set;
@@ -3078,22 +3148,23 @@ func Merge(global *GlobalConfig, repo *RepoConfig) *Config {
 		// copied straight through with no repository override step.
 		Eval: global.Eval,
 		// Jev is global-only for the same reason as Eval.
-		Jev:            global.Jev,
-		Commands:       repo.Commands,
-		Gates:          copyGates(repo.Gates),
-		IgnorePatterns: repo.IgnorePatterns,
-		ProtectedPaths: repo.ProtectedPaths,
-		AutoFix:        af,
-		CI:             ci,
-		Rebase:         rebase,
-		Commit:         commit,
-		Intent:         intent,
-		Test:           test,
-		Document:       Document{Instructions: strings.TrimSpace(repo.Document.Instructions)},
-		Review:         Review{PathInstructions: resolvePathInstructions(repo.Review.PathInstructions)},
-		PR:             pr,
-		ForgeProfiles:  global.ForgeProfiles,
-		Providers:      providers,
+		Jev:                global.Jev,
+		Commands:           repo.Commands,
+		Gates:              copyGates(repo.Gates),
+		IgnorePatterns:     repo.IgnorePatterns,
+		ProtectedPaths:     repo.ProtectedPaths,
+		AutoFix:            af,
+		AutoFixMinSeverity: afMin,
+		CI:                 ci,
+		Rebase:             rebase,
+		Commit:             commit,
+		Intent:             intent,
+		Test:               test,
+		Document:           Document{Instructions: strings.TrimSpace(repo.Document.Instructions)},
+		Review:             Review{PathInstructions: resolvePathInstructions(repo.Review.PathInstructions)},
+		PR:                 pr,
+		ForgeProfiles:      global.ForgeProfiles,
+		Providers:          providers,
 		// repo is the EffectiveRepoConfig result, so this value is already
 		// trusted-only (EffectiveRepoConfig sourced it from the trusted copy).
 		DisableProjectSettings: repo.DisableProjectSettings,

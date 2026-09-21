@@ -13,7 +13,7 @@ The daemon also reads `document.instructions`, `review.path_instructions`, `gate
 If the default branch cannot be fetched and resolved to a readable commit, or its present `.no-mistakes.yaml` cannot be read and parsed, the run aborts before launching an agent.
 A readable default-branch tree with no `.no-mistakes.yaml` is valid and uses defaults.
 Commit the gate-control settings you want to your default branch.
-Non-executing fields (`ignore_patterns`, `auto_fix`, `commit`, `intent`, `test`, `pr.title_format`, and `providers`) are still read from the pushed branch, except `test.instructions`, `test.allow_approve_over_failure`, and `test.evidence.branch`.
+Non-executing fields (`ignore_patterns`, `auto_fix`, `auto_fix_min_severity`, `commit`, `intent`, `test`, `pr.title_format`, and `providers`) are still read from the pushed branch, except `test.instructions`, `test.allow_approve_over_failure`, and `test.evidence.branch`.
 
 If you genuinely want per-branch `commands` and `agent` (for example, a single-developer repo where you trust your own feature branches), opt in with [`allow_repo_commands: true`](#allow_repo_commands) in this same file on your default branch. This re-enables the previous behavior with eyes open. The switch is read only from the trusted default-branch copy, so a contributor cannot self-enable it from a pushed branch.
 :::
@@ -581,6 +581,20 @@ For empty `commands.lint`, the document step's combined housekeeping pass also a
 The CI step reports each settled failure as an `auto-fix` finding and the shared auto-fix loop drives its fix rounds, exactly as for review; `ask-user` findings (a supported review bot's red check, a provider-attributed check no rerun will replace) never consume an attempt.
 
 Legacy alias: `auto_fix.babysit`.
+
+### auto_fix_min_severity
+
+Override the lowest finding severity the automatic fix loop may fix. Unset inherits from global config; unset there fixes every severity.
+
+| | |
+|---|---|
+| Type | `object` |
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `auto_fix_min_severity.review` | `string` (`error`, `warning`, or `info`) | Inherits from global (default unset) |
+
+With `review: error`, the automatic review loop fixes only `error` findings; warnings still park for approval. The option only narrows the loop that `auto_fix.review` enables, so it is read from the pushed branch like `auto_fix`. The [global config reference](/no-mistakes/reference/global-config/#auto_fix_min_severity) owns the full behavior.
 
 ### ci.rerun_transient
 
