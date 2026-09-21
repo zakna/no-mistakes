@@ -188,3 +188,27 @@ func TestMergeOutstandingFindingsJSON_LatestRiskAssessmentWins(t *testing.T) {
 		t.Fatalf("expected latest assessment, got %q / %q", merged.RiskLevel, merged.RiskRationale)
 	}
 }
+
+func TestAutoFixableFindingsAtSeverityJSON_FiltersBySeverity(t *testing.T) {
+	raw := `{"findings":[{"id":"a","severity":"error","description":"x","action":"auto-fix"},{"id":"b","severity":"warning","description":"y","action":"auto-fix"},{"id":"c","severity":"error","description":"z","action":"ask-user"}],"summary":"3"}`
+	got := autoFixableFindingsAtSeverityJSON(raw, types.FindingSeverityError)
+	parsed, err := types.ParseFindingsJSON(got)
+	if err != nil || len(parsed.Items) != 1 || parsed.Items[0].ID != "a" {
+		t.Fatalf("filtered = %q (%v), want only the auto-fix error", got, err)
+	}
+	if got := autoFixableFindingsAtSeverityJSON(`{"findings":[{"id":"b","severity":"warning","description":"y","action":"auto-fix"}]}`, types.FindingSeverityError); got != "" {
+		t.Fatalf("warning-only payload under error = %q, want empty", got)
+	}
+}
+
+// With a filter, an unparseable payload's severities cannot be checked, so it
+// is not auto-fixed; without one it keeps today's fix-it-whole behavior.
+func TestAutoFixableFindingsAtSeverityJSON_UnparseableFailsClosedOnlyWithFilter(t *testing.T) {
+	const raw = `not json`
+	if got := autoFixableFindingsAtSeverityJSON(raw, types.FindingSeverityError); got != "" {
+		t.Fatalf("filtered unparseable = %q, want empty", got)
+	}
+	if got := autoFixableFindingsAtSeverityJSON(raw, ""); got != raw {
+		t.Fatalf("unfiltered unparseable = %q, want %q", got, raw)
+	}
+}

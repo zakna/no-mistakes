@@ -59,6 +59,7 @@ Nothing that survives a rerun falls into the agent loop either. A check the prov
 Core-step attempt limits come from the `auto_fix` config object; the [`auto_fix` global field reference](/no-mistakes/reference/global-config/#auto_fix) owns their defaults, meanings, and legacy alias.
 Setting a step to `0` disables the follow-up auto-fix loop, so the pipeline pauses for human input when that step finds issues; `auto_fix.review` defaults to `0`, so review findings require manual approval unless you opt in.
 Repo config overlays global core-step limits field by field - you can set `auto_fix.lint: 5` in a repo's `.no-mistakes.yaml` to override just that step while inheriting the rest from global. The [`auto_fix` repo field reference](/no-mistakes/reference/repo-config/#auto_fix) owns the separate, repository-only gate budgets.
+By default the automatic review loop fixes eligible findings of every severity. Set [`auto_fix_min_severity.review`](/no-mistakes/reference/global-config/#auto_fix_min_severity) to `error` to fix only blocking findings automatically; warnings then park for approval as they do without auto-fix.
 
 ## Finding actions
 

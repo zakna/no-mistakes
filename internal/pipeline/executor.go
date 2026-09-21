@@ -991,6 +991,13 @@ func (e *Executor) autoFixLimit(stepName types.StepName) int {
 	return e.config.AutoFixLimit(stepName)
 }
 
+func (e *Executor) autoFixMinSeverity(stepName types.StepName) string {
+	if e.config == nil {
+		return ""
+	}
+	return e.config.AutoFixMinSeverityFor(stepName)
+}
+
 // executeStep runs a single step with approval coordination.
 // Returns whether to skip the remainder, an optional earlier restart step,
 // and any execution error.
@@ -1384,13 +1391,15 @@ rounds:
 		// Check if auto-fix should be attempted.
 		// Only auto-fix findings whose action is "auto-fix".
 		// This runs before the NeedsApproval check so that all severity
-		// levels (including "info") get a chance at automatic fixing.
+		// levels (including "info") get a chance at automatic fixing, unless
+		// auto_fix_min_severity narrows the loop; findings below it fall
+		// through to the approval check below exactly as today.
 		autoFixable := outcome.AutoFixable
 		if stepName.IsCustomGate() {
 			autoFixable = gateAutoFixEligible(roundFindings, sctx.PreviousFindings, sctx.DeferredFindings, sctx.Fixing)
 		}
 		if autoFixable && autoFixLimit > 0 && autoFixAttempts < autoFixLimit {
-			fixableFindings := autoFixableFindingsJSON(roundFindings)
+			fixableFindings := autoFixableFindingsAtSeverityJSON(roundFindings, e.autoFixMinSeverity(stepName))
 			if carryFindings {
 				fixableFindings = remapFindingIDsJSON(effectiveFindings, fixableFindings)
 			}
