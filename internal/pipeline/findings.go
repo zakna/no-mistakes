@@ -244,14 +244,26 @@ func retainMatchingFindingsJSON(existingRaw, keepRaw string) string {
 }
 
 func autoFixableFindingsJSON(raw string) string {
+	return autoFixableFindingsAtSeverityJSON(raw, "")
+}
+
+// autoFixableFindingsAtSeverityJSON narrows autoFixableFindingsJSON to
+// findings at or above minSeverity; an empty minSeverity keeps every severity.
+// An unparseable payload is fixed whole only when no filter is set: with a
+// filter its severities cannot be checked, so nothing is auto-fixed and the
+// gate parks it instead.
+func autoFixableFindingsAtSeverityJSON(raw, minSeverity string) string {
 	if raw == "" {
 		return ""
 	}
 	findings, err := types.ParseFindingsJSON(raw)
 	if err != nil {
+		if minSeverity != "" {
+			return ""
+		}
 		return raw
 	}
-	fixable := types.AutoFixableFindings(findings)
+	fixable := types.FindingsAtOrAboveSeverity(types.AutoFixableFindings(findings), minSeverity)
 	if len(fixable.Items) == 0 {
 		return ""
 	}

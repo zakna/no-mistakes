@@ -449,6 +449,40 @@ func AutoFixableFindings(findings Findings) Findings {
 	return result
 }
 
+// findingSeverityRank orders the known severities; an unknown severity ranks
+// below info so a minimum-severity filter never admits it.
+func findingSeverityRank(severity string) int {
+	switch NormalizeFindingSeverity(severity) {
+	case FindingSeverityError:
+		return 3
+	case FindingSeverityWarning:
+		return 2
+	case FindingSeverityInfo:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// FindingsAtOrAboveSeverity returns a new Findings containing only items whose
+// severity is at least minSeverity. An empty minSeverity keeps every item, so
+// callers can pass an unset option straight through.
+func FindingsAtOrAboveSeverity(findings Findings, minSeverity string) Findings {
+	if strings.TrimSpace(minSeverity) == "" {
+		result := FindingsMetadata(findings)
+		result.Items = append(result.Items, findings.Items...)
+		return result
+	}
+	floor := findingSeverityRank(minSeverity)
+	result := FindingsMetadata(findings)
+	for _, item := range findings.Items {
+		if rank := findingSeverityRank(item.Severity); rank > 0 && rank >= floor {
+			result.Items = append(result.Items, item)
+		}
+	}
+	return result
+}
+
 // MergeUserOverrides applies per-finding user instructions to existing agent
 // findings and appends user-added findings at the end. Added findings have
 // Source stamped to FindingSourceUser and receive deterministic "user-N" IDs
