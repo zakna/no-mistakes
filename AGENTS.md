@@ -80,6 +80,14 @@ Safest local verification sequence after non-trivial changes:
 - There is NO review round cap and none may be added (captain's ruling 2026-09-15). The question protocol section is appended LAST, after `pathInstructions` and `agent.MemoryFilesRule`, because the off-state guarantee is append-only: the on-prompt must be the off-prompt plus that section and nothing else (`TestReviewStep_ConversationOffIsTodaysReview`). It used to sit at the end of `historySection`, which upstream's later `MemoryFilesRule` then followed, inserting it mid-prompt and breaking the prefix property.
 
 
+**Deferred Findings Become Defect Issues (`internal/deferredissues`, fork-only)**
+
+- Opt-in (`file_deferred_findings.review: github-issue`, off by default): every review finding that ships unfixed becomes one GitHub defect issue with a first triage. Filing is evidence, never a gate - `pipeline.DeferredFindingsFiler` copies `ApprovalOverrideVerifier`'s shape (gate logic in the executor, forge calls in the steps package) and returns nothing; a missing target, refused permission, forge error, impact failure, record failure, or even a filer panic is logged and the run continues. Five call sites file: approved gate, skipped gate, clean completion (the ONLY path info findings have, since `hasBlockingFindingsJSON` ignores info), and both `Resume` gate answers so a daemon restart loses nothing.
+- Identity is content-keyed: `Fingerprint` hashes issue repo + file + normalized description + severity and deliberately EXCLUDES the line number, so a moved or re-minted finding does not open a second issue. `deferred_finding_issues` is the duplicate authority through a PARTIAL unique index (`outcome = 'created'`), so a failed attempt is retried at the next gate answer; the body marker search is only the backup, because GitHub's search index lags. Duplicates settle BEFORE the impact turn, so an already-filed batch costs no tokens.
+- `issue_repos` is global-only (a personal tracker must not be committed to a shared repo, and it is the only way to file for a Bitbucket/GitLab-pushed repo). Target chain: override (explicit = the operator's own authorization, no permission check) -> GitHub fork -> GitHub upstream, else nothing. `CanFileIssues` fails closed: an unanswered permission question is not permission. `gh label create` runs WITHOUT `--force`, and `gh issue create` output is scraped from the LAST URL line because a body can contain a URL.
+- Decisions: `docs/adr/0001-0003`. User semantics: `docs/src/content/docs/reference/global-config.md`.
+- Regressions: `internal/deferredissues/*_test.go`, `internal/db/deferred_finding_issue_test.go`, `internal/scm/github/issues_test.go`, `internal/pipeline/deferred_test.go`, `internal/pipeline/steps/review_deferred_test.go`, `internal/cli/axi_deferred_test.go`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
