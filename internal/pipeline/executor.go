@@ -61,11 +61,11 @@ type Executor struct {
 	shared   *RunShared
 	workDir  string
 
-	mu                     sync.Mutex
-	approvalCh             chan approvalResponse // buffered channel for approval responses
-	waiting                bool                  // true when blocked on approval
-	waitingStep            types.StepName        // which step is currently awaiting approval
-	waitingApprovalRefusal string                // non-empty: why Approve is rejected at the waiting gate
+	mu             sync.Mutex
+	approvalCh     chan approvalResponse // buffered channel for approval responses
+	waiting        bool                  // true when blocked on approval
+	waitingStep    types.StepName        // which step is currently awaiting approval
+	waitingRefusal gateRefusal           // non-empty reason: why an answer is rejected at the waiting gate
 
 	gateReconcileInterval time.Duration
 	gateReconcileTimeout  time.Duration
@@ -184,8 +184,8 @@ func (e *Executor) RespondWithOverrides(step types.StepName, action types.Approv
 		e.mu.Unlock()
 		return fmt.Errorf("step mismatch: responding to %q but %q is awaiting approval", step, e.waitingStep)
 	}
-	if action == types.ActionApprove && e.waitingApprovalRefusal != "" {
-		refusal := e.waitingApprovalRefusal
+	if e.waitingRefusal.refuses(action) {
+		refusal := e.waitingRefusal.reason
 		e.mu.Unlock()
 		return errors.New(refusal)
 	}
@@ -469,7 +469,7 @@ func (e *Executor) Resume(ctx context.Context, run *db.Run, repo *db.Repo, workD
 	e.mu.Lock()
 	e.waiting = true
 	e.waitingStep = gate.step.Name()
-	e.waitingApprovalRefusal = approvalRefusal(gate.step.Name(), gate.findings)
+	e.waitingRefusal = approvalRefusal(gate.step.Name(), gate.findings, e.requireErrorsFixed())
 	e.mu.Unlock()
 	e.emitStepEventWithFindingsAndError(
 		ipc.EventStepCompleted,
@@ -1175,7 +1175,7 @@ rounds:
 			e.mu.Lock()
 			e.waiting = true
 			e.waitingStep = stepName
-			e.waitingApprovalRefusal = approvalRefusal(stepName, effectiveFindings)
+			e.waitingRefusal = approvalRefusal(stepName, effectiveFindings, e.requireErrorsFixed())
 			e.mu.Unlock()
 
 			// Parking starts before the gate becomes observable. This includes the
