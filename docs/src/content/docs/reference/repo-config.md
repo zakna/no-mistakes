@@ -13,7 +13,7 @@ The daemon also reads `document.instructions`, `review.conversation`, `review.pa
 If the default branch cannot be fetched and resolved to a readable commit, or its present `.no-mistakes.yaml` cannot be read and parsed, the run aborts before launching an agent.
 A readable default-branch tree with no `.no-mistakes.yaml` is valid and uses defaults.
 Commit the gate-control settings you want to your default branch.
-Non-executing fields (`ignore_patterns`, `auto_fix`, `auto_fix_min_severity`, `commit`, `intent`, `test`, `pr.title_format`, and `providers`) are still read from the pushed branch, except `test.prepare`, `test.instructions`, `test.allow_approve_over_failure`, and `test.evidence.branch`.
+Non-executing fields (`ignore_patterns`, `auto_fix`, `auto_fix_min_severity`, `file_deferred_findings`, `commit`, `intent`, `test`, `pr.title_format`, and `providers`) are still read from the pushed branch, except `test.prepare`, `test.instructions`, `test.allow_approve_over_failure`, and `test.evidence.branch`.
 
 If you genuinely want per-branch `commands` and `agent` (for example, a single-developer repo where you trust your own feature branches), opt in with [`allow_repo_commands: true`](#allow_repo_commands) in this same file on your default branch. This re-enables the previous behavior with eyes open. The switch is read only from the trusted default-branch copy, so a contributor cannot self-enable it from a pushed branch.
 :::
@@ -640,6 +640,27 @@ Override the lowest finding severity the automatic fix loop may fix. Unset inher
 | `auto_fix_min_severity.review` | `string` (`error`, `warning`, or `info`) | Inherits from global (default unset) |
 
 With `review: error`, the automatic review loop fixes only `error` findings; warnings still park for approval. The option only narrows the loop that `auto_fix.review` enables, so it is read from the pushed branch like `auto_fix`. The [global config reference](/no-mistakes/reference/global-config/#auto_fix_min_severity) owns the full behavior.
+
+### file_deferred_findings
+
+Switch deferred-finding issue filing on or off for this repository. Unset inherits from global config; unset there is `off`.
+
+| | |
+|---|---|
+| Type | `object` |
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `file_deferred_findings.review` | `string` (`off` or `github-issue`) | Inherits from global (default `off`) |
+
+```yaml
+file_deferred_findings:
+  review: github-issue
+```
+
+With `github-issue`, every review finding that ships unfixed becomes one GitHub defect issue with a first triage. The [global config reference](/no-mistakes/reference/global-config/#file_deferred_findings) owns the full behavior, the issue shape, and the duplicate rule.
+
+Only the mode is available here. `issue_repos` is global-only, so a shared repository never carries someone's personal tracker. Filing still needs a repository that can receive issues and push permission there, which is decided outside this file.
 
 ### ci.rerun_transient
 

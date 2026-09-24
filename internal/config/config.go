@@ -1288,6 +1288,17 @@ auto_fix:
 # auto_fix_min_severity:
 #   review: error
 
+# Optional: file every review finding that ships unfixed as a GitHub defect
+# issue, with a first triage (severity plus an impact judgement). Off by
+# default. issue_repos names which repository receives the issues for a remote;
+# it is global-only, and it is the only way to file for a repository whose
+# pipeline pushes to another forge. Without it, the issues go to the GitHub fork
+# or upstream, and only when you can push there.
+# file_deferred_findings:
+#   review: github-issue
+#   issue_repos:
+#     git@bitbucket.org:team/actor.git: your-name/actor-defects
+
 # How many times the CI step may re-run a single check the provider reported as
 # cancelled before that check reaches an approval gate instead of the fix agent.
 # Defaults to 0: a cancelled conclusion does not identify who cancelled, so a

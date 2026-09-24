@@ -80,6 +80,11 @@ auto_fix:
 # auto_fix_min_severity:
 #   review: error # or: warning, info (unset fixes every severity)
 
+# file_deferred_findings:
+#   review: github-issue # or: off (default)
+#   issue_repos: # which repository receives the issues, by remote URL
+#     git@bitbucket.org:team/actor.git: your-name/actor-defects
+
 ci:
   rerun_transient: 0
   revalidate_repairs: false
@@ -768,6 +773,40 @@ The `auto_fix.review` round budget and the park when it is spent are unchanged.
 An unknown value fails the config instead of falling back, so a typo cannot silently fix every severity.
 
 Per-repo config can override this value.
+
+### file_deferred_findings
+
+File every review finding that ships unfixed as a GitHub issue, so a deferred defect is tracked instead of lost.
+
+|      |          |
+| ---- | -------- |
+| Type | `object` |
+
+| Field                                | Type     | Default | Description                                                                       |
+| ------------------------------------ | -------- | ------- | --------------------------------------------------------------------------------- |
+| `file_deferred_findings.review`      | `string` | `off`   | `off`, or `github-issue` to file review findings that ship unfixed.               |
+| `file_deferred_findings.issue_repos` | `object` | empty   | Remote URL to `owner/name`: which repository receives the issues for that remote.  |
+
+```yaml
+file_deferred_findings:
+  review: github-issue
+  issue_repos:
+    git@bitbucket.org:team/actor.git: your-name/actor-defects
+```
+
+With `review: github-issue`, the Review step files one issue for each finding that is still outstanding when the step completes, is approved, or is skipped. This covers a warning you accepted at the gate and an `info` finding that never parks at all. A finding that a fix round repaired is not filed.
+
+Each issue carries a first triage: the finding text, its severity, one `high`/`medium`/`low` impact judgement with a one-line reason, the run, branch and commit it came from, and how it was deferred. Labels are `defect`, `severity:<grade>`, and `impact:<level>`. A missing label is created and an existing label is never overwritten.
+
+One issue exists for each defect in each issue repository. Identity comes from the file, the finding text, and the severity, so the same defect reported by a later round, a rerun, or another branch does not open a second issue, even after its line moved. The local database is the authority; a hidden marker in the issue body is the backup.
+
+`issue_repos` is global-only, because a tracker is your own choice and must not be committed to a shared repository. It is also the only way to file for a repository whose pipeline pushes to another forge: a Bitbucket or GitLab remote resolves to no GitHub slug on its own.
+
+Without an override, the issues go to the GitHub fork the pipeline pushes to, else the GitHub upstream, and only when the authenticated `gh` user can push there. A permission check that cannot be answered counts as no permission. When nothing can receive issues, the step names every unfiled finding in the run log instead.
+
+Filing never holds delivery. A missing target, a refused permission, a forge error, a failed impact judgement, or a database error is reported in the run log and the run continues; the failed finding is retried at the next gate answer.
+
+Per-repo config can switch `review` on or off; see the [repo config reference](/no-mistakes/reference/repo-config/#file_deferred_findings).
 
 ### ci.rerun_transient
 
