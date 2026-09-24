@@ -3,6 +3,7 @@ package pipeline
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
@@ -87,16 +88,96 @@ func HasUnreadableReviewQuestionHistory(findingsJSON string) bool {
 	return false
 }
 
-// approvalRefusal reports why Approve is rejected at a gate, or "" when it is
-// accepted.
-func approvalRefusal(step types.StepName, findingsJSON string) string {
+// gateRefusal records why a gate rejects an answer, and which answers it
+// rejects.
+type gateRefusal struct {
+	// reason is empty when the gate accepts every answer.
+	reason string
+	// blocksSkip refuses skip as well as approve. A skip ships the finding
+	// exactly like an approval does, so a requirement that a defect must be
+	// fixed has to refuse both; the older refusals below only guard what an
+	// approval itself would publish.
+	blocksSkip bool
+}
+
+// refuses reports whether this refusal rejects action.
+func (g gateRefusal) refuses(action types.ApprovalAction) bool {
+	if g.reason == "" {
+		return false
+	}
+	return action == types.ActionApprove || (g.blocksSkip && action == types.ActionSkip)
+}
+
+// approvalRefusal reports why an answer is rejected at a gate.
+//
+// requireErrorsFixed is the operator's trusted review.require_errors_fixed
+// setting. It is off by default, which leaves every gate exactly as it was.
+func approvalRefusal(step types.StepName, findingsJSON string, requireErrorsFixed bool) gateRefusal {
 	switch {
 	case HasProtectedPathRefusal(findingsJSON):
-		return fmt.Sprintf("cannot approve a protected-path refusal: resolve the reported edit, then use fix to retry %s; approval would skip unfinished work", step)
+		return gateRefusal{reason: fmt.Sprintf("cannot approve a protected-path refusal: resolve the reported edit, then use fix to retry %s; approval would skip unfinished work", step)}
 	case HasUnvalidatedWorkRefusal(findingsJSON):
-		return fmt.Sprintf("cannot approve %s: the run worktree holds work no Test turn validated and approval would publish it; inspect it as the findings describe, then use fix to validate it, or abort", step)
+		return gateRefusal{reason: fmt.Sprintf("cannot approve %s: the run worktree holds work no Test turn validated and approval would publish it; inspect it as the findings describe, then use fix to validate it, or abort", step)}
+	case requireErrorsFixed && step == types.StepReview && hasErrorFindingsJSON(findingsJSON):
+		return gateRefusal{
+			reason: fmt.Sprintf("cannot approve or skip %s: review.require_errors_fixed is on and %s; use fix to repair them, or abort", step,
+				errorFindingsSummary(findingsJSON)),
+			blocksSkip: true,
+		}
 	}
-	return ""
+	return gateRefusal{}
+}
+
+// hasErrorFindingsJSON reports whether any outstanding finding is an error.
+// Unreadable findings answer true: the operator asked for errors to be fixed,
+// so a payload nobody can read must not pass as "no errors".
+func hasErrorFindingsJSON(findingsJSON string) bool {
+	if findingsJSON == "" {
+		return false
+	}
+	findings, err := types.ParseFindingsJSON(findingsJSON)
+	if err != nil {
+		return true
+	}
+	for _, item := range findings.Items {
+		if item.Severity == types.FindingSeverityError {
+			return true
+		}
+	}
+	return false
+}
+
+// errorFindingsSummary names the error findings that hold the gate, so the
+// answer says what to repair rather than only that it was refused.
+func errorFindingsSummary(findingsJSON string) string {
+	findings, err := types.ParseFindingsJSON(findingsJSON)
+	if err != nil {
+		return "the findings could not be read"
+	}
+	var ids []string
+	for _, item := range findings.Items {
+		if item.Severity == types.FindingSeverityError {
+			ids = append(ids, item.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return "an error finding is outstanding"
+	}
+	if len(ids) == 1 {
+		return "error finding " + ids[0] + " is outstanding"
+	}
+	return "error findings " + strings.Join(ids, ", ") + " are outstanding"
+}
+
+// requireErrorsFixed reports whether the operator requires every error finding
+// to be repaired before the review gate accepts approve or skip
+// (review.require_errors_fixed, trusted default branch only). Off by default,
+// and off whenever no config is loaded.
+func (e *Executor) requireErrorsFixed() bool {
+	if e == nil || e.config == nil {
+		return false
+	}
+	return e.config.Review.RequireErrorsFixed
 }
 
 type ProtectedPathError struct {
