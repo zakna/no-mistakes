@@ -91,6 +91,7 @@ func runAxiStatus(cmd *cobra.Command, runID string) error {
 	if syncField := cachedBranchSyncField(cmd, run.ID); syncField != nil {
 		fields = append(fields, *syncField)
 	}
+	fields = append(fields, deferredIssueFields(env.d, run.ID)...)
 	if gate, ok := rv.awaitingStep(); ok {
 		// The label above and the commands below deliberately use different
 		// evidence rules. Branch equality is enough to label the selected run,
