@@ -280,6 +280,7 @@ For older active runs with no recorded activity timestamp, AXI falls back to the
 Gate summaries and finding descriptions are bounded in this default status view; truncated values disclose their original length, and the gate help points to `no-mistakes axi logs --step <step> --full` for an implicitly resolved run or `no-mistakes axi logs --run <id> --step <step> --full` for an explicitly selected run.
 Relevant current-branch states also include a cached `branch_sync` object with full SHAs, the run's status, the persisted pipeline push binding, target kind and ref, relation, safety result, PR lifecycle, and a structured next action.
 Cached home and status rendering performs no network read and labels the remote observation `pipeline_push`; only explicit sync check or apply reports `live` freshness.
+When a run filed defect issues for review findings that shipped unfixed ([`file_deferred_findings`](/no-mistakes/reference/global-config/#file_deferred_findings)), status adds `deferred_issues` with the filed, skipped and failed counts, and `deferred_issue_details` with one row per finding: its id, severity, impact, outcome, issue URL, and the reason when there is no URL. Both keys are absent when the run filed nothing.
 
 ## no-mistakes axi sync
 
