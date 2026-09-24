@@ -200,6 +200,38 @@ CREATE TABLE IF NOT EXISTS uncertified_pipeline_ranges (
     created_at    INTEGER NOT NULL,
     PRIMARY KEY (repo_id, branch)
 );
+
+-- One row per deferred review finding this machine tried to file as an issue.
+-- outcome is 'created', 'skipped', or 'failed'. The partial unique index makes
+-- "already filed" the authoritative duplicate check: it is keyed by the issue
+-- repository and the finding's content fingerprint, never by run or branch, so
+-- the same defect reported again in a later round, a rerun, or another branch
+-- resolves to the issue that already exists. A 'failed' row deliberately does
+-- not occupy the key, so the next gate answer retries it.
+CREATE TABLE IF NOT EXISTS deferred_finding_issues (
+    id           TEXT PRIMARY KEY,
+    repo_id      TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    issue_repo   TEXT NOT NULL,
+    fingerprint  TEXT NOT NULL,
+    run_id       TEXT NOT NULL,
+    step_result_id TEXT NOT NULL,
+    finding_id   TEXT NOT NULL,
+    branch       TEXT NOT NULL,
+    head_sha     TEXT NOT NULL,
+    severity     TEXT NOT NULL,
+    impact       TEXT NOT NULL,
+    outcome      TEXT NOT NULL,
+    issue_url    TEXT NOT NULL,
+    detail       TEXT NOT NULL,
+    created_at   INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deferred_finding_issues_filed
+    ON deferred_finding_issues (issue_repo, fingerprint)
+    WHERE outcome = 'created';
+
+CREATE INDEX IF NOT EXISTS idx_deferred_finding_issues_run
+    ON deferred_finding_issues (run_id, created_at, id);
 `
 
 // migrationStatements hold additive schema changes applied to databases that

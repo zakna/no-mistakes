@@ -190,6 +190,9 @@ type GlobalConfig struct {
 	// AutoFixMinSeverity narrows which findings the automatic fix loop may
 	// fix; a repo value overrides it field by field, like AutoFix.
 	AutoFixMinSeverity AutoFixMinSeverityRaw
+	// FileDeferredFindings turns deferred-finding issue filing on and holds
+	// the operator's issue-repository overrides (see FileDeferredFindingsRaw).
+	FileDeferredFindings FileDeferredFindingsRaw
 	// CI is the operator's own CI-step floor. It is the only place the rerun
 	// budget can be set for a repository whose default branch this machine's
 	// user does not control (the common case when contributing to someone
@@ -239,6 +242,7 @@ type globalConfigRaw struct {
 	SessionReuse            *bool                      `yaml:"session_reuse"`
 	AutoFix                 AutoFixRaw                 `yaml:"auto_fix"`
 	AutoFixMinSeverity      AutoFixMinSeverityRaw      `yaml:"auto_fix_min_severity"`
+	FileDeferredFindings    FileDeferredFindingsRaw    `yaml:"file_deferred_findings"`
 	CI                      CIRaw                      `yaml:"ci"`
 	Rebase                  RebaseRaw                  `yaml:"rebase"`
 	Commit                  GlobalCommitRaw            `yaml:"commit"`
@@ -288,7 +292,10 @@ type RepoConfig struct {
 	// PublishIntent trusted-only.
 	AutoFix            AutoFixRaw            `yaml:"auto_fix"`
 	AutoFixMinSeverity AutoFixMinSeverityRaw `yaml:"auto_fix_min_severity"`
-	CI                 CIRaw                 `yaml:"ci"`
+	// FileDeferredFindings carries only the repository's filing mode; the
+	// issue-repository map is global-only (see FileDeferredFindingsRaw).
+	FileDeferredFindings RepoFileDeferredFindingsRaw `yaml:"file_deferred_findings"`
+	CI                   CIRaw                       `yaml:"ci"`
 	// Rebase is gate-control: EffectiveRepoConfig keeps it trusted-only so a
 	// pushed branch cannot opt its own integration out of the shape the
 	// maintainer chose.
@@ -494,25 +501,26 @@ func RenderedInstructions(instructions string) string {
 
 func (c *RepoConfig) UnmarshalYAML(value *yaml.Node) error {
 	type repoConfigRaw struct {
-		Agent                  agentList             `yaml:"agent"`
-		Commands               Commands              `yaml:"commands"`
-		IgnorePatterns         []string              `yaml:"ignore_patterns"`
-		ProtectedPaths         []string              `yaml:"protected_paths"`
-		AllowRepoCommands      bool                  `yaml:"allow_repo_commands"`
-		AutoFix                AutoFixRaw            `yaml:"auto_fix"`
-		AutoFixMinSeverity     AutoFixMinSeverityRaw `yaml:"auto_fix_min_severity"`
-		CI                     CIRaw                 `yaml:"ci"`
-		Rebase                 RebaseRaw             `yaml:"rebase"`
-		Commit                 CommitRaw             `yaml:"commit"`
-		Intent                 IntentRaw             `yaml:"intent"`
-		Test                   TestRaw               `yaml:"test"`
-		PR                     PRRaw                 `yaml:"pr"`
-		Document               DocumentRaw           `yaml:"document"`
-		Review                 ReviewRaw             `yaml:"review"`
-		Gates                  []Gate                `yaml:"gates"`
-		DisableProjectSettings bool                  `yaml:"disable_project_settings"`
-		NoCI                   bool                  `yaml:"no_ci"`
-		Providers              ProvidersRaw          `yaml:"providers"`
+		Agent                  agentList                   `yaml:"agent"`
+		Commands               Commands                    `yaml:"commands"`
+		IgnorePatterns         []string                    `yaml:"ignore_patterns"`
+		ProtectedPaths         []string                    `yaml:"protected_paths"`
+		AllowRepoCommands      bool                        `yaml:"allow_repo_commands"`
+		AutoFix                AutoFixRaw                  `yaml:"auto_fix"`
+		AutoFixMinSeverity     AutoFixMinSeverityRaw       `yaml:"auto_fix_min_severity"`
+		FileDeferredFindings   RepoFileDeferredFindingsRaw `yaml:"file_deferred_findings"`
+		CI                     CIRaw                       `yaml:"ci"`
+		Rebase                 RebaseRaw                   `yaml:"rebase"`
+		Commit                 CommitRaw                   `yaml:"commit"`
+		Intent                 IntentRaw                   `yaml:"intent"`
+		Test                   TestRaw                     `yaml:"test"`
+		PR                     PRRaw                       `yaml:"pr"`
+		Document               DocumentRaw                 `yaml:"document"`
+		Review                 ReviewRaw                   `yaml:"review"`
+		Gates                  []Gate                      `yaml:"gates"`
+		DisableProjectSettings bool                        `yaml:"disable_project_settings"`
+		NoCI                   bool                        `yaml:"no_ci"`
+		Providers              ProvidersRaw                `yaml:"providers"`
 	}
 	var raw repoConfigRaw
 	if err := value.Decode(&raw); err != nil {
@@ -526,6 +534,7 @@ func (c *RepoConfig) UnmarshalYAML(value *yaml.Node) error {
 	c.AllowRepoCommands = raw.AllowRepoCommands
 	c.AutoFix = raw.AutoFix
 	c.AutoFixMinSeverity = raw.AutoFixMinSeverity
+	c.FileDeferredFindings = raw.FileDeferredFindings
 	c.CI = raw.CI
 	c.Rebase = raw.Rebase
 	c.Commit = raw.Commit
@@ -706,15 +715,17 @@ type Config struct {
 	ProtectedPaths     []string
 	AutoFix            AutoFix
 	AutoFixMinSeverity AutoFixMinSeverity
-	CI                 CI
-	Rebase             Rebase
-	Commit             Commit
-	Intent             Intent
-	Test               Test
-	Document           Document
-	Review             Review
-	PR                 PR
-	ForgeProfiles      ForgeProfiles
+	// FileDeferredFindings is the resolved deferred-finding filing config.
+	FileDeferredFindings FileDeferredFindings
+	CI                   CI
+	Rebase               Rebase
+	Commit               Commit
+	Intent               Intent
+	Test                 Test
+	Document             Document
+	Review               Review
+	PR                   PR
+	ForgeProfiles        ForgeProfiles
 	// DisableProjectSettings is the resolved, trusted-only opt-out (see the
 	// RepoConfig field). When true, gate agents are launched with their
 	// project-level settings/instructions suppressed; the daemon fails the run
@@ -2151,6 +2162,9 @@ func LoadGlobalFromBytes(data []byte) (*GlobalConfig, error) {
 	if err := validateAutoFixMinSeverityRaw(raw.AutoFixMinSeverity); err != nil {
 		return nil, fmt.Errorf("parse global config: %w", err)
 	}
+	if err := validateFileDeferredFindingsRaw(raw.FileDeferredFindings); err != nil {
+		return nil, fmt.Errorf("parse global config: %w", err)
+	}
 
 	if len(raw.Agent) > 0 {
 		cfg.Agents = copyAgents(raw.Agent)
@@ -2278,6 +2292,7 @@ func LoadGlobalFromBytes(data []byte) (*GlobalConfig, error) {
 	}
 	cfg.AutoFix = raw.AutoFix
 	cfg.AutoFixMinSeverity = raw.AutoFixMinSeverity
+	cfg.FileDeferredFindings = raw.FileDeferredFindings
 	cfg.CI = raw.CI
 	cfg.Rebase = raw.Rebase
 	cfg.Commit = raw.Commit
@@ -2429,6 +2444,9 @@ func parseRepoConfig(data []byte) (*RepoConfig, error) {
 		return nil, fmt.Errorf("parse repo config: %w", err)
 	}
 	if err := validateAutoFixMinSeverityRaw(cfg.AutoFixMinSeverity); err != nil {
+		return nil, fmt.Errorf("parse repo config: %w", err)
+	}
+	if err := validateFileDeferredFindingsMode(cfg.FileDeferredFindings.Review); err != nil {
 		return nil, fmt.Errorf("parse repo config: %w", err)
 	}
 	cfg.PR.BaseBranch = strings.TrimSpace(cfg.PR.BaseBranch)
@@ -3057,6 +3075,7 @@ func Merge(global *GlobalConfig, repo *RepoConfig) *Config {
 	af := autoFixDefaults()
 	applyAutoFixOverrides(&af, &global.AutoFix)
 	applyAutoFixOverrides(&af, &repo.AutoFix)
+	fileDeferred := resolveFileDeferredFindings(global.FileDeferredFindings, repo.FileDeferredFindings)
 	var afMin AutoFixMinSeverity
 	applyAutoFixMinSeverityOverrides(&afMin, &global.AutoFixMinSeverity)
 	applyAutoFixMinSeverityOverrides(&afMin, &repo.AutoFixMinSeverity)
@@ -3148,23 +3167,24 @@ func Merge(global *GlobalConfig, repo *RepoConfig) *Config {
 		// copied straight through with no repository override step.
 		Eval: global.Eval,
 		// Jev is global-only for the same reason as Eval.
-		Jev:                global.Jev,
-		Commands:           repo.Commands,
-		Gates:              copyGates(repo.Gates),
-		IgnorePatterns:     repo.IgnorePatterns,
-		ProtectedPaths:     repo.ProtectedPaths,
-		AutoFix:            af,
-		AutoFixMinSeverity: afMin,
-		CI:                 ci,
-		Rebase:             rebase,
-		Commit:             commit,
-		Intent:             intent,
-		Test:               test,
-		Document:           Document{Instructions: strings.TrimSpace(repo.Document.Instructions)},
-		Review:             Review{PathInstructions: resolvePathInstructions(repo.Review.PathInstructions)},
-		PR:                 pr,
-		ForgeProfiles:      global.ForgeProfiles,
-		Providers:          providers,
+		Jev:                  global.Jev,
+		Commands:             repo.Commands,
+		Gates:                copyGates(repo.Gates),
+		IgnorePatterns:       repo.IgnorePatterns,
+		ProtectedPaths:       repo.ProtectedPaths,
+		AutoFix:              af,
+		AutoFixMinSeverity:   afMin,
+		CI:                   ci,
+		Rebase:               rebase,
+		Commit:               commit,
+		Intent:               intent,
+		Test:                 test,
+		Document:             Document{Instructions: strings.TrimSpace(repo.Document.Instructions)},
+		Review:               Review{PathInstructions: resolvePathInstructions(repo.Review.PathInstructions)},
+		FileDeferredFindings: fileDeferred,
+		PR:                   pr,
+		ForgeProfiles:        global.ForgeProfiles,
+		Providers:            providers,
 		// repo is the EffectiveRepoConfig result, so this value is already
 		// trusted-only (EffectiveRepoConfig sourced it from the trusted copy).
 		DisableProjectSettings: repo.DisableProjectSettings,

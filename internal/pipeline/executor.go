@@ -515,6 +515,10 @@ func (e *Executor) Resume(ctx context.Context, run *db.Run, repo *db.Repo, workD
 		if err := e.applyApprovalOverride(gate.step, reconcileCtx, gate.stepResult.ID, response.approvalReason); err != nil {
 			return e.failRun(run, repo, err, ctx)
 		}
+		// A gate answered after a daemon restart must file its deferred
+		// findings exactly like the live path; otherwise a restart silently
+		// loses every defect the operator approved over.
+		e.fileDeferredFindings(gate.step, reconcileCtx, gate.findings, DeferralApproved, gate.selectedOutstandingIDs)
 		if err := completeRecoveredGate(); err != nil {
 			return e.failRun(run, repo, fmt.Errorf("complete recovered step %s: %w", gate.step.Name(), err), ctx)
 		}
@@ -522,6 +526,7 @@ func (e *Executor) Resume(ctx context.Context, run *db.Run, repo *db.Repo, workD
 		return e.executeRecoveredRemainder(ctx, run, repo, workDir, logDir, gate.index+1, false)
 	case types.ActionSkip:
 		e.recordDeclinedRound(gate.lastRoundID, gate.findings, gate.step.Name(), gate.round)
+		e.fileDeferredFindings(gate.step, reconcileCtx, gate.findings, DeferralSkipped, gate.selectedOutstandingIDs)
 		if err := e.db.CompleteStepWithStatus(gate.stepResult.ID, types.StepStatusSkipped, recoveredExitCode(gate.stepResult), duration, recoveredLogPath(gate.stepResult)); err != nil {
 			return e.failRun(run, repo, fmt.Errorf("skip recovered step %s: %w", gate.step.Name(), err), ctx)
 		}
@@ -1137,6 +1142,9 @@ rounds:
 		}
 
 		if !outcome.NeedsApproval && !hasAskUserFindingsJSON(effectiveFindings) && !hasBlockingFindingsJSON(effectiveFindings) && (!carryFindings || !hasSelectedFindingsJSON(effectiveFindings, selectedOutstandingIDs)) {
+			// Any finding still here ships unfixed. Info findings never park, so
+			// this is the only place they can be filed as defects.
+			e.fileDeferredFindings(step, sctx, effectiveFindings, DeferralCompleted, selectedOutstandingIDs)
 			// Step completed without needing approval.
 			// Any remaining info-only or non-blocking findings
 			// are acceptable and don't block the pipeline.
@@ -1225,12 +1233,14 @@ rounds:
 				if err := e.applyApprovalOverride(step, sctx, sr.ID, response.approvalReason); err != nil {
 					return false, "", err
 				}
+				e.fileDeferredFindings(step, sctx, effectiveFindings, DeferralApproved, selectedOutstandingIDs)
 				phaseStart = time.Now()
 				goto done
 
 			case types.ActionSkip:
 				// Skip - mark step skipped and return (not an error)
 				e.recordDeclinedRound(currentRoundID, effectiveFindings, stepName, roundNum)
+				e.fileDeferredFindings(step, sctx, effectiveFindings, DeferralSkipped, selectedOutstandingIDs)
 				if err := e.db.CompleteStepWithStatus(sr.ID, types.StepStatusSkipped, finalExitCode, executionMS, logPath); err != nil {
 					return false, "", fmt.Errorf("complete step %s (skip): %w", stepName, err)
 				}
