@@ -196,6 +196,10 @@ type GlobalConfig struct {
 	// FileDeferredFindings turns deferred-finding issue filing on and holds
 	// the operator's issue-repository overrides (see FileDeferredFindingsRaw).
 	FileDeferredFindings FileDeferredFindingsRaw
+	// Review holds the operator's own review-gate settings. Unlike the
+	// repository's ReviewRaw it carries no path_instructions: global config
+	// describes this machine, not one repository's paths.
+	Review GlobalReviewRaw
 	// CI is the operator's own CI-step floor. It is the only place the rerun
 	// budget can be set for a repository whose default branch this machine's
 	// user does not control (the common case when contributing to someone
@@ -241,6 +245,7 @@ type globalConfigRaw struct {
 	AutoFix                 AutoFixRaw                 `yaml:"auto_fix"`
 	AutoFixMinSeverity      AutoFixMinSeverityRaw      `yaml:"auto_fix_min_severity"`
 	FileDeferredFindings    FileDeferredFindingsRaw    `yaml:"file_deferred_findings"`
+	Review                  GlobalReviewRaw            `yaml:"review"`
 	CI                      CIRaw                      `yaml:"ci"`
 	Rebase                  RebaseRaw                  `yaml:"rebase"`
 	Commit                  GlobalCommitRaw            `yaml:"commit"`
@@ -409,6 +414,21 @@ type ReviewRaw struct {
 	// at least one changed file; a run that touches nothing matching leaves
 	// the review prompt exactly as it is without this setting.
 	PathInstructions []PathInstruction `yaml:"path_instructions"`
+	// RequireErrorsFixed refuses an approve or skip answer at the review gate
+	// while an error finding is still outstanding, so an error can only leave
+	// the gate through a fix (or an abort). It is gate-control configuration
+	// and therefore trusted-default-branch-only like the rest of ReviewRaw: a
+	// pushed branch must not be able to turn the maintainer's requirement off
+	// for its own review. Nil means "not set" so a repository can also switch
+	// it off against a global default.
+	RequireErrorsFixed *bool `yaml:"require_errors_fixed"`
+}
+
+// GlobalReviewRaw is the YAML representation of the operator's own review-gate
+// settings. Only the machine-wide flags live here; path_instructions describe
+// one repository's paths and stay in that repository's config.
+type GlobalReviewRaw struct {
+	RequireErrorsFixed *bool `yaml:"require_errors_fixed"`
 }
 
 // PRRaw is the YAML representation of pull-request settings.
@@ -862,10 +882,11 @@ type Document struct {
 	Instructions string
 }
 
-// Review is the resolved review-step config. Both fields come from the trusted
-// default-branch repo config: PathInstructions scope extra review guidance to
-// the changed paths each glob matches, and Conversation decides whether the
-// reviewer may ask questions while it works.
+// Review is the resolved review-step config. Its repository values come from
+// the trusted default-branch repo config: PathInstructions scope extra review
+// guidance to the changed paths each glob matches, Conversation decides whether
+// the reviewer may ask questions while it works, and RequireErrorsFixed
+// overlays the operator's machine-wide default.
 type Review struct {
 	// Conversation is true when the reviewer may ask the operator questions
 	// mid-pass. It gates the whole protocol: the prompt section, the
@@ -873,6 +894,9 @@ type Review struct {
 	// reviewer session a finalize turn resumes, and `no-mistakes axi answer`.
 	Conversation     bool
 	PathInstructions []PathInstruction
+	// RequireErrorsFixed is the resolved gate requirement (see ReviewRaw).
+	// False, the default, keeps today's behavior.
+	RequireErrorsFixed bool
 }
 
 // TestRaw is the YAML representation of test-step settings.
@@ -2376,6 +2400,7 @@ func LoadGlobalFromBytes(data []byte) (*GlobalConfig, error) {
 	cfg.AutoFix = raw.AutoFix
 	cfg.AutoFixMinSeverity = raw.AutoFixMinSeverity
 	cfg.FileDeferredFindings = raw.FileDeferredFindings
+	cfg.Review = raw.Review
 	cfg.CI = raw.CI
 	cfg.Rebase = raw.Rebase
 	cfg.Commit = raw.Commit
@@ -3304,13 +3329,17 @@ func merge(global *GlobalConfig, repo *RepoConfig, override *RepositoryOverride)
 		Intent:             intent,
 		Test:               test,
 		Document:           Document{Instructions: strings.TrimSpace(repo.Document.Instructions)},
-		// repo is the EffectiveRepoConfig result, so both values are already
-		// trusted-only. Like document.instructions and test.instructions, the
-		// review block is resolved from the repository alone - global config
-		// carries no review block to overlay.
+		// repo is the EffectiveRepoConfig result, so every review value is
+		// already trusted-only. Like document.instructions and
+		// test.instructions, the conversation and path instructions are
+		// resolved from the repository alone; require_errors_fixed is the one
+		// review value with a machine-wide default to overlay.
 		Review: Review{
 			Conversation:     repo.Review.Conversation,
 			PathInstructions: resolvePathInstructions(repo.Review.PathInstructions),
+			// A set repository value wins over the operator's machine-wide
+			// default in either direction.
+			RequireErrorsFixed: resolveBoolOverride(global.Review.RequireErrorsFixed, repo.Review.RequireErrorsFixed),
 		},
 		FileDeferredFindings: fileDeferred,
 		PR:                   pr,

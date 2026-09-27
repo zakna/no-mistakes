@@ -147,3 +147,15 @@ func (c *Config) IssueRepoOverrideFor(remoteURL string) string {
 	}
 	return ""
 }
+
+// resolveBoolOverride returns the repository value when set, else the global
+// value when set, else false.
+func resolveBoolOverride(global, repo *bool) bool {
+	if repo != nil {
+		return *repo
+	}
+	if global != nil {
+		return *global
+	}
+	return false
+}
