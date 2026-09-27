@@ -344,6 +344,11 @@ type RepositoryOverride struct {
 // one parks the gate for a human and stays the repository's decision.
 type OperatorReviewRaw struct {
 	PathInstructions []PathInstruction `yaml:"path_instructions"`
+	// RequireErrorsFixed is the operator's machine-wide default for the
+	// repository's review.require_errors_fixed; a set repository value wins
+	// in either direction. Global-only: a repository_overrides entry carrying
+	// it is rejected rather than silently ignored.
+	RequireErrorsFixed *bool `yaml:"require_errors_fixed"`
 }
 
 // RepositoryPRRaw contains machine-local per-repository PR title settings.
@@ -475,6 +480,14 @@ type ReviewRaw struct {
 	// at least one changed file; a run that touches nothing matching leaves
 	// the review prompt exactly as it is without this setting.
 	PathInstructions []PathInstruction `yaml:"path_instructions"`
+	// RequireErrorsFixed refuses an approve or skip answer at the review gate
+	// while an error finding is still outstanding, so an error can only leave
+	// the gate through a fix (or an abort). It is gate-control configuration
+	// and therefore trusted-default-branch-only like the rest of ReviewRaw: a
+	// pushed branch must not be able to turn the maintainer's requirement off
+	// for its own review. Nil means "not set" so a repository can also switch
+	// it off against a global default.
+	RequireErrorsFixed *bool `yaml:"require_errors_fixed"`
 }
 
 // PRRaw is the YAML representation of pull-request settings.
@@ -976,6 +989,8 @@ type Document struct {
 // review guidance to the changed paths each glob matches, and Conversation
 // decides whether the reviewer may ask questions while it works. The two
 // operator lists come from the global config and only ever add rules.
+// RequireErrorsFixed is resolved from the repository, falling back to the
+// operator's machine-wide default.
 type Review struct {
 	// Conversation is true when the reviewer may ask the operator questions
 	// mid-pass. It gates the whole protocol: the prompt section, the
@@ -983,6 +998,9 @@ type Review struct {
 	// reviewer session a finalize turn resumes, and `no-mistakes axi answer`.
 	Conversation     bool
 	PathInstructions []PathInstruction
+	// RequireErrorsFixed is the resolved gate requirement (see ReviewRaw).
+	// False, the default, keeps today's behavior.
+	RequireErrorsFixed bool
 	// GlobalPathInstructions come from the global config's review block.
 	GlobalPathInstructions []PathInstruction
 	// RepositoryPathInstructions come from the repository_overrides entry
@@ -2956,6 +2974,9 @@ func validateOperatorReview(global OperatorReviewRaw, overrides RepositoryOverri
 		return err
 	}
 	for key, override := range overrides {
+		if override.Review.RequireErrorsFixed != nil {
+			return fmt.Errorf("invalid repository_overrides.%s: review.require_errors_fixed is global-only; set it at the top level of the global config", key)
+		}
 		if err := validatePathInstructionEntries(override.Review.PathInstructions); err != nil {
 			return fmt.Errorf("invalid repository_overrides.%s: %w", key, err)
 		}
@@ -3784,6 +3805,9 @@ func merge(global *GlobalConfig, repo *RepoConfig, override *RepositoryOverride)
 			Conversation:           repo.Review.Conversation,
 			PathInstructions:       resolvePathInstructions(repo.Review.PathInstructions),
 			GlobalPathInstructions: resolvePathInstructions(global.Review.PathInstructions),
+			// A set repository value wins over the operator's machine-wide
+			// default in either direction.
+			RequireErrorsFixed: resolveBoolOverride(global.Review.RequireErrorsFixed, repo.Review.RequireErrorsFixed),
 		},
 		FileDeferredFindings: fileDeferred,
 		PR:                   pr,

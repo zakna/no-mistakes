@@ -90,6 +90,9 @@ auto_fix:
 #   issue_repos: # which repository receives the issues, by remote URL
 #     git@bitbucket.org:team/actor.git: your-name/actor-defects
 
+# review:
+#   require_errors_fixed: true # refuse approve and skip while an error is outstanding
+
 ci:
   rerun_transient: 0
   revalidate_repairs: false
@@ -949,6 +952,26 @@ Without an override, the issues go to the GitHub fork the pipeline pushes to, el
 Filing never holds delivery. A missing target, a refused permission, a forge error, a failed impact judgement, or a database error is reported in the run log and the run continues; the failed finding is retried at the next gate answer.
 
 Per-repo config can switch `review` on or off; see the [repo config reference](/no-mistakes/reference/repo-config/#file_deferred_findings).
+
+### review.require_errors_fixed
+
+Require every `error` review finding to be repaired before the Review gate accepts an answer.
+
+|         |        |
+| ------- | ------ |
+| Type    | `bool` |
+| Default | `false` |
+
+```yaml
+review:
+  require_errors_fixed: true
+```
+
+With this on, the Review gate refuses both `approve` and `skip` while any `error` finding is outstanding, and names the findings that hold it. `fix` and `abort` stay available. `skip` is refused as well, because a skip ships the defect exactly as an approval does.
+
+The requirement covers `error` findings only, so a warning gate stays answerable. Filing an `error` finding as a defect issue does not count as fixing it: while the gate refuses, no answer ships the finding, so nothing is filed for it. Use it with `auto_fix_min_severity.review: error` and `file_deferred_findings.review: github-issue` to make one rule: an error is fixed now, everything else is filed as a defect issue and triaged later.
+
+A trusted repository value overrides this value in both directions. The repository copy is read only from the default branch, so a pushed branch cannot weaken or raise its own review gate. A value that is not `true` or `false` fails the config instead of falling back, so a typo cannot silently switch the requirement off.
 
 ### ci.rerun_transient
 
