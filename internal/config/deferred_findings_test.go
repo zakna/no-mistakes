@@ -67,3 +67,62 @@ file_deferred_findings:
 		t.Fatal("a malformed slug must fail the config closed")
 	}
 }
+
+func TestReviewRequireErrorsFixed_DefaultsOffAndOverlays(t *testing.T) {
+	if cfg := Merge(&GlobalConfig{}, &RepoConfig{}); cfg.Review.RequireErrorsFixed {
+		t.Fatal("the gate requirement must default to off")
+	}
+	yes, no := true, false
+	global := &GlobalConfig{Review: GlobalReviewRaw{RequireErrorsFixed: &yes}}
+	if cfg := Merge(global, &RepoConfig{}); !cfg.Review.RequireErrorsFixed {
+		t.Fatal("a global value must apply")
+	}
+	repo := &RepoConfig{Review: ReviewRaw{RequireErrorsFixed: &no}}
+	if cfg := Merge(global, repo); cfg.Review.RequireErrorsFixed {
+		t.Fatal("a trusted repository value must win over the global value")
+	}
+}
+
+func TestReviewRequireErrorsFixed_IsTrustedDefaultBranchOnly(t *testing.T) {
+	yes := true
+	pushed := &RepoConfig{Review: ReviewRaw{RequireErrorsFixed: &yes}}
+	// A pushed branch cannot turn the requirement ON or OFF: the whole review
+	// block comes from the trusted copy.
+	effective := EffectiveRepoConfig(pushed, &RepoConfig{}, false)
+	if effective.Review.RequireErrorsFixed != nil {
+		t.Fatal("a pushed review block must not reach the effective config")
+	}
+	trusted := &RepoConfig{Review: ReviewRaw{RequireErrorsFixed: &yes}}
+	noValue := false
+	pushedOff := &RepoConfig{Review: ReviewRaw{RequireErrorsFixed: &noValue}}
+	effective = EffectiveRepoConfig(pushedOff, trusted, true)
+	if effective.Review.RequireErrorsFixed == nil || !*effective.Review.RequireErrorsFixed {
+		t.Fatal("the trusted requirement must survive a pushed branch that switches it off, even with the commands opt-in")
+	}
+}
+
+func TestReviewRequireErrorsFixed_LoadsFromYAMLAndRejectsNonBooleans(t *testing.T) {
+	global, err := LoadGlobalFromBytes([]byte("review:\n  require_errors_fixed: true\n"))
+	if err != nil {
+		t.Fatalf("LoadGlobalFromBytes: %v", err)
+	}
+	if cfg := Merge(global, &RepoConfig{}); !cfg.Review.RequireErrorsFixed {
+		t.Fatal("review.require_errors_fixed: true in the global config must turn the requirement on")
+	}
+	repo, err := LoadRepoFromBytes([]byte("review:\n  require_errors_fixed: true\n"))
+	if err != nil {
+		t.Fatalf("LoadRepoFromBytes: %v", err)
+	}
+	if repo.Review.RequireErrorsFixed == nil || !*repo.Review.RequireErrorsFixed {
+		t.Fatal("review.require_errors_fixed: true in the repo config must be read")
+	}
+	for _, value := range []string{"maybe", "errors", "[true]"} {
+		doc := []byte("review:\n  require_errors_fixed: " + value + "\n")
+		if _, err := LoadGlobalFromBytes(doc); err == nil {
+			t.Fatalf("global review.require_errors_fixed: %s must fail the config closed", value)
+		}
+		if _, err := LoadRepoFromBytes(doc); err == nil {
+			t.Fatalf("repo review.require_errors_fixed: %s must fail the config closed", value)
+		}
+	}
+}

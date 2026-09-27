@@ -134,3 +134,77 @@ func TestApprovalRefusal_GuardScopeAndWording(t *testing.T) {
 		t.Fatal("an empty refusal must refuse nothing")
 	}
 }
+
+const errorAndWarningFindings = `{"summary":"one error, one warning","findings":[{"id":"1","severity":"error","file":"a.go","description":"The token is logged in clear text"},{"id":"2","severity":"warning","file":"b.go","description":"The retry loop has no backoff"}],"reviewed_paths":["a.go","b.go"]}`
+
+func requireErrorsFixedAndFilingConfig() *config.Config {
+	on := true
+	return config.Merge(&config.GlobalConfig{
+		Review:               config.GlobalReviewRaw{RequireErrorsFixed: &on},
+		FileDeferredFindings: config.FileDeferredFindingsRaw{Review: config.FileDeferredFindingsGitHubIssue},
+	}, &config.RepoConfig{})
+}
+
+// Filing an error as an issue is not fixing it. With both options on, a gate
+// that holds an error refuses approve and skip, and a refused answer files
+// nothing: neither the error nor the warning beside it leaves the gate.
+func TestRequireErrorsFixed_FilingDoesNotCountAsFixed(t *testing.T) {
+	step := &filingStep{mockStep: newApprovalStep(types.StepReview, errorAndWarningFindings)}
+	database, p, run, repo := setupTest(t)
+	exec := NewExecutor(database, p, requireErrorsFixedAndFilingConfig(), nil, []Step{step}, nil)
+
+	done := make(chan error, 1)
+	go func() { done <- exec.Execute(context.Background(), run, repo, t.TempDir()) }()
+	waitForStepStatus(t, database, run.ID, step.Name(), types.StepStatusAwaitingApproval)
+
+	for _, action := range []types.ApprovalAction{types.ActionApprove, types.ActionSkip} {
+		err := exec.Respond(step.Name(), action, nil)
+		if err == nil || !strings.Contains(err.Error(), "error finding 1") {
+			t.Fatalf("Respond(%s) error = %v, want a refusal naming error finding 1", action, err)
+		}
+		if calls := step.filings(); len(calls) != 0 {
+			t.Fatalf("filings after refused %s = %+v, want none", action, calls)
+		}
+	}
+	if err := exec.Respond(step.Name(), types.ActionAbort, nil); err != nil {
+		t.Fatalf("Respond(abort) error = %v, want abort allowed", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor did not settle after the abort")
+	}
+	if calls := step.filings(); len(calls) != 0 {
+		t.Fatalf("filings after abort = %+v, want none", calls)
+	}
+}
+
+// The requirement leaves deferred filing of warning and info findings exactly
+// as it is without the requirement.
+func TestRequireErrorsFixed_WarningFilingIsUnchanged(t *testing.T) {
+	for _, action := range []types.ApprovalAction{types.ActionApprove, types.ActionSkip} {
+		with := runFilingGateCase(t, requireErrorsFixedAndFilingConfig(), warningFindings, action)
+		without := runFilingGateCase(t, filingOnConfig(), warningFindings, action)
+		if len(with) != 1 || len(without) != 1 {
+			t.Fatalf("%s filings = %d with the requirement, %d without; want 1 and 1", action, len(with), len(without))
+		}
+		if with[0].findings != without[0].findings || with[0].answers["1"] != without[0].answers["1"] {
+			t.Fatalf("%s filing with the requirement = %+v, without = %+v; want identical", action, with[0], without[0])
+		}
+	}
+}
+
+// Info findings never park, so clean completion files them with or without
+// the requirement.
+func TestRequireErrorsFixed_InfoFilingOnCleanCompletionIsUnchanged(t *testing.T) {
+	step := &filingStep{mockStep: &mockStep{name: types.StepReview, outcome: &StepOutcome{Findings: infoFindings, ReviewedPaths: []string{"a.go"}}}}
+	database, p, run, repo := setupTest(t)
+	exec := NewExecutor(database, p, requireErrorsFixedAndFilingConfig(), nil, []Step{step}, nil)
+	if err := exec.Execute(context.Background(), run, repo, t.TempDir()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	calls := step.filings()
+	if len(calls) != 1 || calls[0].answers["1"] != DeferralCompleted {
+		t.Fatalf("filings = %+v, want one completed filing", calls)
+	}
+}

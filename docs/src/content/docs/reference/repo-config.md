@@ -8,7 +8,7 @@ Per-repo configuration lives in `.no-mistakes.yaml` at the root of your reposito
 :::caution[Security: gate-control fields are read from the default branch]
 `commands.*` and `gates[].command` execute arbitrary shell on the daemon host via `sh -c` / `cmd.exe /c`, and `agent` selects which process launches there (including ordered fallback lists, ACP aliases such as `cursor`, and `acp:` targets) with the maintainer's credentials.
 To prevent a supply-chain attack where a contributor lands a hostile value on a gated branch, the daemon always reads **`commands` and `agent` from your default branch** (e.g. `origin/main`), never from the pushed SHA, and reads them at the exact commit a fresh fetch resolved (so a stale `origin/<default>` ref cannot serve a value the live default branch removed).
-The daemon also reads `document.instructions`, `review.path_instructions`, `gates`, `protected_paths`, `disable_project_settings`, `no_ci`, `ci.rerun_transient`, `ci.revalidate_repairs`, `rebase.strategy`, `test.instructions`, `test.allow_approve_over_failure`, `test.evidence.branch`, `pr.template`, and `pr.publish_intent` only from that trusted copy.
+The daemon also reads `document.instructions`, `review.path_instructions`, `review.require_errors_fixed`, `gates`, `protected_paths`, `disable_project_settings`, `no_ci`, `ci.rerun_transient`, `ci.revalidate_repairs`, `rebase.strategy`, `test.instructions`, `test.allow_approve_over_failure`, `test.evidence.branch`, `pr.template`, and `pr.publish_intent` only from that trusted copy.
 `pr.base_branch` is trusted-default-branch-only as well, but unlike those fields it follows the same `allow_repo_commands: true` opt-in exception as `commands`/`agent` (see [`pr.base_branch`](#prbase_branch) below).
 If the default branch cannot be fetched and resolved to a readable commit, or its present `.no-mistakes.yaml` cannot be read and parsed, the run aborts before launching an agent.
 A readable default-branch tree with no `.no-mistakes.yaml` is valid and uses defaults.
@@ -616,6 +616,24 @@ file_deferred_findings:
 With `github-issue`, every review finding that ships unfixed becomes one GitHub defect issue with a first triage. The [global config reference](/no-mistakes/reference/global-config/#file_deferred_findings) owns the full behavior, the issue shape, and the duplicate rule.
 
 Only the mode is available here. `issue_repos` is global-only, so a shared repository never carries someone's personal tracker. Filing still needs a repository that can receive issues and push permission there, which is decided outside this file.
+
+### review.require_errors_fixed
+
+Require every `error` review finding to be repaired before the Review gate accepts an answer.
+
+| | |
+|---|---|
+| Type | `bool` |
+| Default | Inherits from global (default `false`) |
+
+```yaml
+review:
+  require_errors_fixed: true
+```
+
+With this on, the Review gate refuses `approve` and `skip` while any `error` finding is outstanding; `fix` and `abort` stay available. The [global config reference](/no-mistakes/reference/global-config/#reviewrequire_errors_fixed) owns the full behavior.
+
+This value is read only from the trusted default-branch copy, like `review.path_instructions` and for the same reason: it controls the gate that judges the pushed branch, so a pushed branch must not change it in either direction. An explicit value here overrides the global value in both directions.
 
 ### ci.rerun_transient
 
