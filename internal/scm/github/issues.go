@@ -3,7 +3,9 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -143,14 +145,22 @@ func (h *Host) FindIssueByMarker(ctx context.Context, repo, marker string) (stri
 // opening a public issue cannot be undone quietly, so an unanswered question
 // must not be read as permission.
 func (h *Host) CanFileIssues(ctx context.Context, repo string) (bool, error) {
-	repoArgs, err := issueRepoArgs(repo)
-	if err != nil {
-		return false, err
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return false, fmt.Errorf("no issue repository given; refusing to let gh infer one")
 	}
-	args := append([]string{"repo", "view"}, repoArgs...)
-	args = append(args, "--json", "viewerPermission")
-	out, err := h.cmd(ctx, "gh", args...).Output()
+	// `gh issue *` takes --repo, but `gh repo view` takes the repository as a
+	// positional argument and rejects --repo as an unknown flag.
+	out, err := h.cmd(ctx, "gh", "repo", "view", repo, "--json", "viewerPermission").Output()
 	if err != nil {
+		// Output keeps stdout clean for the JSON decode and captures stderr on
+		// the exit error, so gh's own reason reaches the recorded skip detail.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+				return false, fmt.Errorf("gh repo view: %s: %w", stderr, err)
+			}
+		}
 		return false, fmt.Errorf("gh repo view: %w", err)
 	}
 	var payload struct {

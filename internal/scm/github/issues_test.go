@@ -146,7 +146,7 @@ func TestFindIssueByMarker_SearchesBodiesAndReportsAMiss(t *testing.T) {
 }
 
 func TestCanFileIssues_OnlyWriteLevelPermissionsAnswerYes(t *testing.T) {
-	cmd := `gh repo view --repo zakna/tracker --json viewerPermission`
+	cmd := `gh repo view zakna/tracker --json viewerPermission`
 	cases := []struct {
 		permission string
 		want       bool
@@ -170,7 +170,7 @@ func TestCanFileIssues_OnlyWriteLevelPermissionsAnswerYes(t *testing.T) {
 
 // An unanswered permission question must never read as permission.
 func TestCanFileIssues_FailsClosed(t *testing.T) {
-	cmd := `gh repo view --repo zakna/tracker --json viewerPermission`
+	cmd := `gh repo view zakna/tracker --json viewerPermission`
 	for name, response := range map[string]githubTestResponse{
 		"command failed":  {stderr: "gh: not logged in", code: 1},
 		"unreadable json": {stdout: "not json"},
@@ -184,5 +184,17 @@ func TestCanFileIssues_FailsClosed(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: error = nil, want the reason reported", name)
 		}
+	}
+}
+
+// A failed permission read names gh's own reason, so a rejected flag or a
+// missing login is diagnosable from the recorded skip detail.
+func TestCanFileIssues_ErrorCarriesGhStderr(t *testing.T) {
+	host := issueTestHost(t, map[string]githubTestResponse{
+		`gh repo view zakna/tracker --json viewerPermission`: {stderr: "unknown flag: --repo", code: 1},
+	})
+	_, err := host.CanFileIssues(context.Background(), "zakna/tracker")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --repo") {
+		t.Fatalf("error = %v, want it to carry gh's stderr", err)
 	}
 }
