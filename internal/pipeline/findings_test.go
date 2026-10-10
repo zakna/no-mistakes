@@ -146,3 +146,69 @@ func TestFilterFindingsJSON_EmptySelectionReturnsEmptyFindings(t *testing.T) {
 		t.Fatalf("summary = %q, want %q", filtered.Summary, "0 selected findings")
 	}
 }
+
+func TestMergeFindingsJSON_LatestRiskAssessmentWinsWhenFindingsCarryForward(t *testing.T) {
+	existingRaw := `{"findings":[{"id":"review-1","severity":"warning","description":"first"}],"summary":"1 finding","risk_level":"medium","risk_rationale":"first and second should be addressed","risk_scope":"scope-a"}`
+	additionalRaw := `{"findings":[{"id":"review-9","severity":"info","description":"other"}],"summary":"1 finding","risk_level":"low","risk_rationale":"first and second are fixed","risk_scope":"scope-b"}`
+
+	merged, err := types.ParseFindingsJSON(mergeFindingsJSON(existingRaw, additionalRaw))
+	if err != nil {
+		t.Fatalf("parse merged findings: %v", err)
+	}
+	if len(merged.Items) != 2 {
+		t.Fatalf("expected carried finding plus new finding, got %#v", merged.Items)
+	}
+	if merged.RiskLevel != "low" || merged.RiskRationale != "first and second are fixed" || merged.RiskScope != "scope-b" {
+		t.Fatalf("expected latest assessment, got %q / %q / %q", merged.RiskLevel, merged.RiskRationale, merged.RiskScope)
+	}
+}
+
+func TestMergeFindingsJSON_KeepsExistingRiskAssessmentWhenRoundHasNone(t *testing.T) {
+	existingRaw := `{"findings":[{"id":"review-1","severity":"warning","description":"first"}],"summary":"1 finding","risk_level":"medium","risk_rationale":"first should be addressed","risk_scope":"scope-a"}`
+	additionalRaw := `{"findings":[{"id":"review-9","severity":"info","description":"other"}],"summary":"1 finding"}`
+
+	merged, err := types.ParseFindingsJSON(mergeFindingsJSON(existingRaw, additionalRaw))
+	if err != nil {
+		t.Fatalf("parse merged findings: %v", err)
+	}
+	if merged.RiskLevel != "medium" || merged.RiskRationale != "first should be addressed" || merged.RiskScope != "scope-a" {
+		t.Fatalf("expected existing assessment kept, got %q / %q / %q", merged.RiskLevel, merged.RiskRationale, merged.RiskScope)
+	}
+}
+
+func TestMergeOutstandingFindingsJSON_LatestRiskAssessmentWins(t *testing.T) {
+	existingRaw := `{"findings":[{"id":"review-1","severity":"warning","description":"first","file":"a.go"}],"summary":"1 finding","risk_level":"medium","risk_rationale":"first should be addressed"}`
+	roundRaw := `{"findings":[{"id":"review-1","severity":"warning","description":"first","file":"a.go"}],"summary":"1 finding","risk_level":"low","risk_rationale":"only first remains"}`
+
+	merged, err := types.ParseFindingsJSON(mergeOutstandingFindingsJSON(existingRaw, roundRaw, []string{"a.go"}))
+	if err != nil {
+		t.Fatalf("parse merged findings: %v", err)
+	}
+	if merged.RiskLevel != "low" || merged.RiskRationale != "only first remains" {
+		t.Fatalf("expected latest assessment, got %q / %q", merged.RiskLevel, merged.RiskRationale)
+	}
+}
+
+func TestAutoFixableFindingsAtSeverityJSON_FiltersBySeverity(t *testing.T) {
+	raw := `{"findings":[{"id":"a","severity":"error","description":"x","action":"auto-fix"},{"id":"b","severity":"warning","description":"y","action":"auto-fix"},{"id":"c","severity":"error","description":"z","action":"ask-user"}],"summary":"3"}`
+	got := autoFixableFindingsAtSeverityJSON(raw, types.FindingSeverityError)
+	parsed, err := types.ParseFindingsJSON(got)
+	if err != nil || len(parsed.Items) != 1 || parsed.Items[0].ID != "a" {
+		t.Fatalf("filtered = %q (%v), want only the auto-fix error", got, err)
+	}
+	if got := autoFixableFindingsAtSeverityJSON(`{"findings":[{"id":"b","severity":"warning","description":"y","action":"auto-fix"}]}`, types.FindingSeverityError); got != "" {
+		t.Fatalf("warning-only payload under error = %q, want empty", got)
+	}
+}
+
+// With a filter, an unparseable payload's severities cannot be checked, so it
+// is not auto-fixed; without one it keeps today's fix-it-whole behavior.
+func TestAutoFixableFindingsAtSeverityJSON_UnparseableFailsClosedOnlyWithFilter(t *testing.T) {
+	const raw = `not json`
+	if got := autoFixableFindingsAtSeverityJSON(raw, types.FindingSeverityError); got != "" {
+		t.Fatalf("filtered unparseable = %q, want empty", got)
+	}
+	if got := autoFixableFindingsAtSeverityJSON(raw, ""); got != raw {
+		t.Fatalf("unfiltered unparseable = %q, want %q", got, raw)
+	}
+}
