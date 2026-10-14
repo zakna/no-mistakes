@@ -120,8 +120,19 @@ func (s *CustomGateStep) executeCommand(sctx *pipeline.StepContext, fixSummary s
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		return nil, fmt.Errorf("create gate findings file: %w", err)
 	}
+	// The same base the review step diffs against, so a gate script need not
+	// guess it from refs: a fix commit moves HEAD past the pushed tip and a PR
+	// may target a branch other than origin/HEAD.
+	baseSHA, err := resolveBranchBaseSHA(sctx.Ctx, sctx, sctx.Run.BaseSHA, effectivePRBaseBranch(sctx))
+	if err != nil {
+		return nil, fmt.Errorf("resolve gate base: %w", err)
+	}
 	commandContext := *sctx
-	commandContext.Env = append(append([]string(nil), sctx.Env...), "NO_MISTAKES_FINDINGS_FILE="+path)
+	commandContext.Env = append(append([]string(nil), sctx.Env...),
+		"NO_MISTAKES_FINDINGS_FILE="+path,
+		"NO_MISTAKES_BRANCH="+sctx.Run.Branch,
+		"NO_MISTAKES_BASE_SHA="+baseSHA,
+	)
 	sctx.Log(fmt.Sprintf("running gate %q: %s", s.Gate.Name, command))
 	output, exitCode, err := runStepShellCommand(&commandContext, command)
 	if err != nil {

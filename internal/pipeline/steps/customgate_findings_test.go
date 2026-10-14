@@ -468,3 +468,30 @@ func TestCustomGateStep_EachCommandGetsAFreshFile(t *testing.T) {
 		t.Fatalf("second execution = %+v, %v, want legacy clean pass", outcome, err)
 	}
 }
+
+func TestCustomGateStep_CommandSeesBranchAndBase(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+	sctx := newTestContext(t, &mockAgent{name: "mock"}, dir, baseSHA, headSHA, config.Commands{})
+	want, err := resolveBranchBaseSHA(sctx.Ctx, sctx, sctx.Run.BaseSHA, effectivePRBaseBranch(sctx))
+	if err != nil || want == "" {
+		t.Fatalf("resolve base = %q, %v", want, err)
+	}
+	step := &CustomGateStep{Gate: config.Gate{Name: "scan", After: types.StepTest, Command: gateTestCommand(
+		t,
+		dir,
+		`printf '%s\n%s' "$NO_MISTAKES_BRANCH" "$NO_MISTAKES_BASE_SHA" > gate-env.txt`,
+		"(echo %NO_MISTAKES_BRANCH%& echo %NO_MISTAKES_BASE_SHA%)>gate-env.txt",
+	)}}
+	if _, err := step.Execute(sctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "gate-env.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Fields(string(got))
+	if len(lines) != 2 || lines[0] != sctx.Run.Branch || lines[1] != want {
+		t.Fatalf("gate env = %q, want branch %q base %q", got, sctx.Run.Branch, want)
+	}
+}
