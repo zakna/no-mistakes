@@ -118,6 +118,10 @@ This is a command-child variable, not a daemon setting. no-mistakes creates a fr
 
 See the [gate contract](/no-mistakes/reference/repo-config/#structured-findings) for the report schema, limits, verdicts, and approval behavior.
 
+## `NO_MISTAKES_BRANCH` and `NO_MISTAKES_BASE_SHA`
+
+Command-child variables supplied to every repository [gate command](/no-mistakes/reference/repo-config/#structured-findings) next to `NO_MISTAKES_FINDINGS_FILE`: the branch being validated and the base commit the review step diffs against.
+
 ## `NO_MISTAKES_BITBUCKET_EMAIL`
 
 Bitbucket Cloud account email used for PR creation and CI monitoring.

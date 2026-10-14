@@ -527,6 +527,8 @@ A gate runs its command in the run worktree through the platform shell, `sh -c` 
 
 #### Structured findings
 
+Every gate command also receives `NO_MISTAKES_BRANCH`, the branch under validation, and `NO_MISTAKES_BASE_SHA`, the commit the review step diffs against (the merge base with the PR base branch). Use them instead of guessing from refs: a fix commit moves `HEAD` past the pushed tip, and a PR may target a branch other than `origin/HEAD`.
+
 Before each command execution, including a re-check after a fix, no-mistakes creates an empty file in a private temporary directory outside the worktree and supplies its absolute path as `NO_MISTAKES_FINDINGS_FILE`. The command may write this JSON to that file:
 
 ```json
