@@ -62,8 +62,8 @@ func collectTestingVerdict(sr *db.StepResult, rounds []*db.StepRound) string {
 // validated": the verdict plus how much of the scenario list was actually
 // driven against the product. It returns "" when neither is recorded.
 func renderLiveValidationLine(scenarios []types.TestScenario, verdict string) string {
-	live, total := types.LiveScenarioCounts(scenarios)
-	if !types.IsKnownTestVerdict(verdict) && total == 0 {
+	live, total, advLive, advTotal := types.LiveScenarioSplitCounts(scenarios)
+	if !types.IsKnownTestVerdict(verdict) && total+advTotal == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -75,8 +75,17 @@ func renderLiveValidationLine(scenarios []types.TestScenario, verdict string) st
 	} else {
 		b.WriteString("no verdict recorded")
 	}
+	// Live scenarios and live adversarial checks are counted separately so
+	// the figure does not change with how many break-it checks were listed.
+	var counts []string
 	if total > 0 {
-		b.WriteString(fmt.Sprintf(" - %d of %d scenarios driven live against the product", live, total))
+		counts = append(counts, fmt.Sprintf("%d of %d scenarios", live, total))
+	}
+	if advTotal > 0 {
+		counts = append(counts, fmt.Sprintf("%d of %d adversarial checks", advLive, advTotal))
+	}
+	if len(counts) > 0 {
+		b.WriteString(" - " + strings.Join(counts, " and ") + " driven live against the product")
 	}
 	return b.String()
 }

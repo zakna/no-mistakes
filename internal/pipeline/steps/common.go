@@ -282,6 +282,7 @@ var testFindingsSchema = json.RawMessage(`{
 					"result": {"type": "string", "enum": ["pass", "fail", "untested"]},
 					"live": {"type": "boolean", "description": "true ONLY when this scenario was driven against the real running product in this run; a unit test, stub, recorded fixture, or code reading is not live"},
 					"evidence": {"type": "string", "description": "the command, artifact label, or evidence file that shows this result"},
+					"adversarial": {"type": "boolean", "description": "optional; true when this scenario actively tries to break a named failure mode, guard, or boundary rather than confirming the happy path; omit or false otherwise"},
 					"reason": {"type": "string", "description": "required for untested: what was tried to drive this scenario live and why live validation is impossible, naming the specific tool, credential, permission, or authority out of reach and how to provide it; under no-surface, why there is no live-validatable surface"}
 				},
 				"required": ["name", "result", "live", "evidence", "reason"]

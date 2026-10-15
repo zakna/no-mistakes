@@ -244,7 +244,7 @@ Context:
 Derive the scenarios:
 - Understand the user intent before testing it. If extracted user intent is present, use it as the primary hint for what success means; otherwise derive the intent from the change itself.
 - Turn that intent into a short list of named scenarios. Each scenario is one concrete thing an end user does and one observable result that proves it, named so a reviewer who never saw this change can tell what was exercised.
-- Where the intent names a failure mode, a guard, or a boundary, add an adversarial scenario that actively tries to break it rather than only confirming the happy path.
+- Where the intent names a failure mode, a guard, or a boundary, add an adversarial scenario that actively tries to break it rather than only confirming the happy path, and mark it "adversarial": true.
 - Keep the list proportionate to the change: cover what this change actually alters, not the whole product.
 
 Drive each scenario:
