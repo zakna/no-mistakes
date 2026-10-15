@@ -224,6 +224,10 @@ type TestScenario struct {
 	Live     bool   `json:"live"`
 	Evidence string `json:"evidence"`
 	Reason   string `json:"reason"`
+	// Adversarial marks a scenario that actively tries to break a failure
+	// mode, guard, or boundary. Absent (older records) means false, so it
+	// counts as an ordinary scenario.
+	Adversarial bool `json:"adversarial,omitempty"`
 }
 
 // LiveScenarioCounts returns how many of scenarios were driven live against
@@ -236,6 +240,25 @@ func LiveScenarioCounts(scenarios []TestScenario) (live, total int) {
 		}
 	}
 	return live, total
+}
+
+// LiveScenarioSplitCounts is LiveScenarioCounts split by the Adversarial
+// mark: ordinary scenarios first, adversarial checks second.
+func LiveScenarioSplitCounts(scenarios []TestScenario) (live, total, advLive, advTotal int) {
+	for _, s := range scenarios {
+		if s.Adversarial {
+			advTotal++
+			if s.Live {
+				advLive++
+			}
+			continue
+		}
+		total++
+		if s.Live {
+			live++
+		}
+	}
+	return live, total, advLive, advTotal
 }
 
 // NoLiveExercisableScenarios reports whether every scenario is untested and

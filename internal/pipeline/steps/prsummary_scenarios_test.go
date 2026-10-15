@@ -189,3 +189,63 @@ func TestBuildPipelineSummary_ScenarioTableRendersOnBitbucket(t *testing.T) {
 		t.Errorf("expected the scenario table on bitbucket, got:\n%s", md)
 	}
 }
+
+func TestBuildTestingSummary_CountsLiveScenariosAndAdversarialChecksSeparately(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		scenarios []types.TestScenario
+		want      string
+	}{
+		{
+			name: "mixed rows",
+			scenarios: []types.TestScenario{
+				{Name: "happy path", Result: types.ScenarioResultPass, Live: true, Evidence: "a"},
+				{Name: "second path", Result: types.ScenarioResultUntested, Reason: "no sandbox"},
+				{Name: "break the guard", Result: types.ScenarioResultPass, Live: true, Evidence: "b", Adversarial: true},
+				{Name: "break the boundary", Result: types.ScenarioResultUntested, Reason: "no sandbox", Adversarial: true},
+				{Name: "break the limit", Result: types.ScenarioResultPass, Live: true, Evidence: "c", Adversarial: true},
+			},
+			want: "Live validation: ✅ go - 1 of 2 scenarios and 2 of 3 adversarial checks driven live against the product",
+		},
+		{
+			name: "records without the field",
+			scenarios: []types.TestScenario{
+				{Name: "happy path", Result: types.ScenarioResultPass, Live: true, Evidence: "a"},
+				{Name: "second path", Result: types.ScenarioResultPass, Live: true, Evidence: "b"},
+			},
+			want: "Live validation: ✅ go - 2 of 2 scenarios driven live against the product",
+		},
+		{
+			name: "no adversarial checks",
+			scenarios: []types.TestScenario{
+				{Name: "happy path", Result: types.ScenarioResultPass, Live: true, Evidence: "a"},
+			},
+			want: "Live validation: ✅ go - 1 of 1 scenarios driven live against the product",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			steps, rounds := testStepWithFindings(t, liveValidatedFindingsJSON(t, tt.scenarios, types.TestVerdictGo))
+			md := BuildTestingSummary(steps, rounds)
+			if !strings.Contains(md, tt.want) {
+				t.Errorf("want %q in:\n%s", tt.want, md)
+			}
+			if strings.Contains(tt.want, "adversarial") != strings.Contains(md, "adversarial checks") {
+				t.Errorf("adversarial count presence mismatch in:\n%s", md)
+			}
+		})
+	}
+}
+
+func TestTestScenario_AdversarialAbsentParsesAsFalse(t *testing.T) {
+	t.Parallel()
+	var s types.TestScenario
+	if err := json.Unmarshal([]byte(`{"name":"n","result":"pass","live":true,"evidence":"e","reason":""}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Adversarial {
+		t.Fatal("absent adversarial must parse as false")
+	}
+}
