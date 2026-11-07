@@ -303,7 +303,7 @@ Every successful fix response echoes what it recorded in a `recorded:` object: `
 
 For an explicitly authorized Test exception, use `no-mistakes axi respond --step test --action approve --reason "the operator's explanation"`.
 The reason is optional: approval without one remains effective, and a qualifying exception is reported with no operator reason supplied.
-The step retains its findings and exit code, and the reason is durable local evidence in `step_results.approval_reason`.
+The step retains its findings and exit code, and the reason is durable local evidence in `step_results.approval_reason`; the PR's Testing section publishes it (see [Test approval](/no-mistakes/reference/pipeline-steps/#test)), but it is never copied onto the attestation.
 Revalidation, a new fix round, or skipping the step clears that current-step approval so a later result cannot inherit it.
 This is separate from the configured-command waiver and trusted repository opt-in used by [PR enforcement](/no-mistakes/reference/pipeline-steps/#pipeline-step-attestation); neither that policy nor approval authority changes.
 `--instructions` remains fix guidance, not an approval-reason input.
