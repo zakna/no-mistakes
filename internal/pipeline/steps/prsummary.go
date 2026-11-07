@@ -400,15 +400,18 @@ func buildTestingSummary(steps []*db.StepResult, rounds map[string][]*db.StepRou
 				b.WriteString("- The summary and scenario results below were recorded before this approval.\n")
 			}
 		}
-		wroteSummary := false
+		summary := ""
 		if testingSummary != "" {
-			rendered := renderTestingSummaryFor(testingSummary, opts.flavor)
-			if rendered != "" {
-				writeTestingSummary(&b, rendered, opts)
-				wroteSummary = true
-			}
+			summary = renderTestingSummaryFor(testingSummary, opts.flavor)
 		} else if !opts.includeTestedDetails && len(tested) > 0 {
-			writeTestingSummary(&b, compactTestedSummary(len(tested)), opts)
+			summary = compactTestedSummary(len(tested))
+		}
+		wroteSummary := false
+		if summary != "" {
+			if approvalLine != "" && opts.summaryParagraph {
+				b.WriteString("\n")
+			}
+			writeTestingSummary(&b, summary, opts)
 			wroteSummary = true
 		}
 		// The verdict and the scenario table come before the tested commands
