@@ -376,25 +376,42 @@ func buildTestingSummary(steps []*db.StepResult, rounds map[string][]*db.StepRou
 		}
 
 		testingSummary := collectTestingSummary(sr, stepRounds)
+		approvalLine := renderTestApprovalReasonLine(sr, opts.flavor)
 		tested := collectTestingDetails(sr, stepRounds)
 		artifacts := collectTestingArtifacts(sr, stepRounds, opts)
 		scenarios := collectTestingScenarios(sr, stepRounds)
 		liveValidation := renderLiveValidationLine(scenarios, collectTestingVerdict(sr, stepRounds))
 		if testingSummary == "" && len(tested) == 0 && len(artifacts) == 0 && liveValidation == "" {
+			if approvalLine != "" {
+				return "## Testing\n\n- " + approvalLine + "\n- " + line
+			}
 			return "## Testing\n\n- " + line
 		}
 
 		var b strings.Builder
 		b.WriteString("## Testing\n\n")
-		wroteSummary := false
-		if testingSummary != "" {
-			rendered := renderTestingSummaryFor(testingSummary, opts.flavor)
-			if rendered != "" {
-				writeTestingSummary(&b, rendered, opts)
-				wroteSummary = true
+		if approvalLine != "" {
+			// The operator's reason leads: it may record verification the
+			// agent's own summary and scenario table could not.
+			b.WriteString("- ")
+			b.WriteString(approvalLine)
+			b.WriteString("\n")
+			if testingSummary != "" || liveValidation != "" || len(scenarios) > 0 {
+				b.WriteString("- The summary and scenario results below were recorded before this approval.\n")
 			}
+		}
+		summary := ""
+		if testingSummary != "" {
+			summary = renderTestingSummaryFor(testingSummary, opts.flavor)
 		} else if !opts.includeTestedDetails && len(tested) > 0 {
-			writeTestingSummary(&b, compactTestedSummary(len(tested)), opts)
+			summary = compactTestedSummary(len(tested))
+		}
+		wroteSummary := false
+		if summary != "" {
+			if approvalLine != "" && opts.summaryParagraph {
+				b.WriteString("\n")
+			}
+			writeTestingSummary(&b, summary, opts)
 			wroteSummary = true
 		}
 		// The verdict and the scenario table come before the tested commands
@@ -450,6 +467,24 @@ func buildTestingSummary(steps []*db.StepResult, rounds map[string][]*db.StepRou
 	}
 
 	return ""
+}
+
+// renderTestApprovalReasonLine publishes the operator's Test approval reason
+// (step_results.approval_reason), which is otherwise stored but never shown.
+// It is labeled an exception only when the step qualifies as one.
+func renderTestApprovalReasonLine(sr *db.StepResult, flavor prBodyFlavor) string {
+	if sr.ApprovalReason == nil || sr.Status != types.StepStatusCompleted {
+		return ""
+	}
+	reason := strings.Join(strings.Fields(sanitizePromptMultilineText(*sr.ApprovalReason)), " ")
+	if reason == "" {
+		return ""
+	}
+	label := "Approved with reason"
+	if sr.TestOverrideReason() != "" {
+		label = "Approved with exception"
+	}
+	return label + ": " + escapePRText(reason, flavor)
 }
 
 func needsArtifactBlockSeparator(previous, current string) bool {
