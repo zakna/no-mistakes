@@ -79,6 +79,8 @@ func (s *ReviewStep) FileDeferredFindings(sctx *pipeline.StepContext, findingsJS
 		PermissionChecked: target.Explicit,
 		GateAnswers:       gateAnswers(answers),
 		Findings:          findings.Items,
+		MinSeverity:       sctx.Config.FileDeferredFindings.MinSeverity,
+		MinImpact:         sctx.Config.FileDeferredFindings.MinImpact,
 	})
 }
 

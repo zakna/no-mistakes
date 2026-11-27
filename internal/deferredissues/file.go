@@ -51,6 +51,11 @@ type Request struct {
 	// and friends). A finding with no entry reports GateApproved.
 	GateAnswers map[string]string
 	Findings    []types.Finding
+	// MinSeverity and MinImpact are optional inclusive floors. An empty value
+	// leaves that dimension unfiltered; unassessed impact qualifies only when
+	// MinImpact is empty.
+	MinSeverity string
+	MinImpact   string
 }
 
 // Result is one finding's filing outcome, ready for the log and the record.
@@ -140,6 +145,13 @@ func (f *Filer) File(ctx context.Context, req Request) []Result {
 			preset[finding.ID] = Result{FindingID: finding.ID, Severity: finding.Severity, Outcome: db.DeferredIssueSkipped, IssueURL: url, Detail: "already filed on the forge"}
 			continue
 		}
+		if !meetsMinimumSeverity(finding, req.MinSeverity) {
+			preset[finding.ID] = Result{
+				FindingID: finding.ID, Severity: finding.Severity, Outcome: db.DeferredIssueSkipped,
+				Detail: fmt.Sprintf("severity is below configured minimum %s", strings.ToLower(strings.TrimSpace(req.MinSeverity))),
+			}
+			continue
+		}
 		pending = append(pending, finding)
 	}
 
@@ -150,7 +162,17 @@ func (f *Filer) File(ctx context.Context, req Request) []Result {
 			results = append(results, f.record(req, finding, result))
 			continue
 		}
-		results = append(results, f.record(req, finding, f.createOne(ctx, req, finding, assessments[finding.ID])))
+		assessment := assessments[finding.ID]
+		impact := normalizeImpact(assessment.Impact)
+		if !meetsMinimumImpact(impact, req.MinImpact) {
+			results = append(results, f.record(req, finding, Result{
+				FindingID: finding.ID, Severity: finding.Severity, Impact: impact,
+				Outcome: db.DeferredIssueSkipped,
+				Detail:  fmt.Sprintf("impact %s is below configured minimum %s", impact, strings.ToLower(strings.TrimSpace(req.MinImpact))),
+			}))
+			continue
+		}
+		results = append(results, f.record(req, finding, f.createOne(ctx, req, finding, assessment)))
 	}
 	if f.Log != nil {
 		f.Log(Summary(results))
@@ -176,12 +198,7 @@ func (f *Filer) assess(ctx context.Context, findings []types.Finding) map[string
 
 func (f *Filer) createOne(ctx context.Context, req Request, finding types.Finding, assessment Assessment) Result {
 	fingerprint := Fingerprint(req.IssueRepo, finding)
-	impact := strings.ToLower(strings.TrimSpace(assessment.Impact))
-	switch impact {
-	case ImpactHigh, ImpactMedium, ImpactLow:
-	default:
-		impact = ImpactUnassessed
-	}
+	impact := normalizeImpact(assessment.Impact)
 	labels := []scm.Label{
 		{Name: LabelDefect, Color: "d73a4a", Description: "A defect no-mistakes found and did not fix"},
 		{Name: SeverityLabel(finding.Severity), Color: "fbca04", Description: "Review severity reported by no-mistakes"},
@@ -267,6 +284,42 @@ func (f *Filer) record(req Request, finding types.Finding, result Result) Result
 		f.Log("deferred findings: local record not written: " + safeurl.RedactText(err.Error()))
 	}
 	return result
+}
+
+func meetsMinimumSeverity(finding types.Finding, minimum string) bool {
+	eligible := types.FindingsAtOrAboveSeverity(types.Findings{Items: []types.Finding{finding}}, minimum)
+	return len(eligible.Items) == 1
+}
+
+func meetsMinimumImpact(impact, minimum string) bool {
+	if strings.TrimSpace(minimum) == "" {
+		return true
+	}
+	minimumRank := impactRank(minimum)
+	return minimumRank > 0 && impactRank(impact) >= minimumRank
+}
+
+func impactRank(impact string) int {
+	switch strings.ToLower(strings.TrimSpace(impact)) {
+	case ImpactHigh:
+		return 3
+	case ImpactMedium:
+		return 2
+	case ImpactLow:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func normalizeImpact(impact string) string {
+	impact = strings.ToLower(strings.TrimSpace(impact))
+	switch impact {
+	case ImpactHigh, ImpactMedium, ImpactLow:
+		return impact
+	default:
+		return ImpactUnassessed
+	}
 }
 
 func contains(values []string, want string) bool {

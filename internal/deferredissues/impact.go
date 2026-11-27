@@ -75,7 +75,7 @@ func (a *AgentImpactAssessor) AssessImpact(ctx context.Context, findings []types
 			Why    string `json:"why"`
 		} `json:"assessments"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Text)), &payload); err != nil {
+	if err := json.Unmarshal(result.Output, &payload); err != nil {
 		return nil, fmt.Errorf("decode impact assessment: %w", err)
 	}
 	assessments := make(map[string]Assessment, len(payload.Assessments))

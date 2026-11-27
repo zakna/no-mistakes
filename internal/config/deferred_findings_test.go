@@ -10,6 +10,9 @@ func TestFileDeferredFindings_UnsetIsOff(t *testing.T) {
 	if cfg.FileDeferredFindings.Review != FileDeferredFindingsOff {
 		t.Fatalf("resolved mode = %q, want %q", cfg.FileDeferredFindings.Review, FileDeferredFindingsOff)
 	}
+	if cfg.FileDeferredFindings.MinSeverity != "" || cfg.FileDeferredFindings.MinImpact != "" {
+		t.Fatalf("unset thresholds = %+v, want no filters", cfg.FileDeferredFindings)
+	}
 }
 
 func TestFileDeferredFindings_GlobalEnablesAndRepoOverrides(t *testing.T) {
@@ -24,6 +27,66 @@ func TestFileDeferredFindings_GlobalEnablesAndRepoOverrides(t *testing.T) {
 	repoOn := &RepoConfig{FileDeferredFindings: RepoFileDeferredFindingsRaw{Review: FileDeferredFindingsGitHubIssue}}
 	if cfg := Merge(&GlobalConfig{}, repoOn); !cfg.FilesDeferredReviewFindings() {
 		t.Fatal("a repository must be able to switch filing on with no global value")
+	}
+}
+
+func TestFileDeferredFindings_MinimumThresholdsOverlayGlobalAndRepo(t *testing.T) {
+	global, err := LoadGlobalFromBytes([]byte(`
+file_deferred_findings:
+  min_severity: warning
+  min_impact: medium
+`))
+	if err != nil {
+		t.Fatalf("load global config: %v", err)
+	}
+	if cfg := Merge(global, &RepoConfig{}); cfg.FileDeferredFindings.MinSeverity != "warning" || cfg.FileDeferredFindings.MinImpact != "medium" {
+		t.Fatalf("global thresholds = %+v, want warning and medium", cfg.FileDeferredFindings)
+	}
+
+	repo, err := LoadRepoFromBytes([]byte(`
+file_deferred_findings:
+  min_severity: ERROR
+  min_impact: low
+`))
+	if err != nil {
+		t.Fatalf("load repo config: %v", err)
+	}
+	cfg := Merge(global, repo)
+	if cfg.FileDeferredFindings.MinSeverity != "error" || cfg.FileDeferredFindings.MinImpact != "low" {
+		t.Fatalf("repo thresholds = %+v, want normalized repo overrides", cfg.FileDeferredFindings)
+	}
+}
+
+func TestFileDeferredFindings_InvalidMinimumThresholdsFailTheConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		yaml   string
+		global bool
+	}{
+		{name: "global severity", yaml: `file_deferred_findings:
+  min_severity: critical
+`, global: true},
+		{name: "global impact", yaml: `file_deferred_findings:
+  min_impact: none
+`, global: true},
+		{name: "repo severity", yaml: `file_deferred_findings:
+  min_severity: critical
+`},
+		{name: "repo impact", yaml: `file_deferred_findings:
+  min_impact: none
+`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.global {
+				if _, err := LoadGlobalFromBytes([]byte(tc.yaml)); err == nil {
+					t.Fatal("invalid global threshold must fail config loading")
+				}
+				return
+			}
+			if _, err := LoadRepoFromBytes([]byte(tc.yaml)); err == nil {
+				t.Fatal("invalid repo threshold must fail config loading")
+			}
+		})
 	}
 }
 

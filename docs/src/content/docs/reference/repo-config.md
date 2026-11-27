@@ -707,7 +707,7 @@ With `review: error`, the automatic review loop fixes only `error` findings; war
 
 ### file_deferred_findings
 
-Switch deferred-finding issue filing on or off for this repository. Unset inherits from global config; unset there is `off`.
+Configure deferred-finding issue filing and its optional severity and impact floors for this repository. Unset fields inherit from global config; unset there, filing is `off` and both floors are unset.
 
 | | |
 |---|---|
@@ -715,16 +715,20 @@ Switch deferred-finding issue filing on or off for this repository. Unset inheri
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `file_deferred_findings.review` | `string` (`off` or `github-issue`) | Inherits from global (default `off`) |
+| `file_deferred_findings.review`       | `string` (`off` or `github-issue`) | Inherits from global (default `off`) |
+| `file_deferred_findings.min_severity` | `string` (`error`, `warning`, or `info`) | Inherits from global (default unset) |
+| `file_deferred_findings.min_impact`   | `string` (`high`, `medium`, or `low`) | Inherits from global (default unset) |
 
 ```yaml
 file_deferred_findings:
   review: github-issue
+  min_severity: warning
+  min_impact: medium
 ```
 
-With `github-issue`, every review finding that ships unfixed becomes one GitHub defect issue with a first triage. The [global config reference](/no-mistakes/reference/global-config/#file_deferred_findings) owns the full behavior, the issue shape, and the duplicate rule.
+With `github-issue`, review findings that ship unfixed become GitHub defect issues with a first triage. The optional minimum severity and impact are inclusive floors; an unassessed finding does not meet a configured impact floor. When both are unset, every finding remains eligible as before. The [global config reference](/no-mistakes/reference/global-config/#file_deferred_findings) owns the full behavior, the issue shape, and the duplicate rule.
 
-Only the mode is available here. `issue_repos` is global-only, so a shared repository never carries someone's personal tracker. Filing still needs a repository that can receive issues and push permission there, which is decided outside this file.
+`issue_repos` is global-only, so a shared repository never carries someone's personal tracker. Filing still needs a repository that can receive issues and push permission there, which is decided outside this file.
 
 ### review.require_errors_fixed
 
