@@ -921,7 +921,7 @@ Per-repo config can override this value.
 
 ### file_deferred_findings
 
-File every review finding that ships unfixed as a GitHub issue, so a deferred defect is tracked instead of lost.
+File deferred review findings as GitHub issues, optionally limited by minimum severity and impact.
 
 |      |          |
 | ---- | -------- |
@@ -929,17 +929,21 @@ File every review finding that ships unfixed as a GitHub issue, so a deferred de
 
 | Field                                | Type     | Default | Description                                                                       |
 | ------------------------------------ | -------- | ------- | --------------------------------------------------------------------------------- |
-| `file_deferred_findings.review`      | `string` | `off`   | `off`, or `github-issue` to file review findings that ship unfixed.               |
-| `file_deferred_findings.issue_repos` | `object` | empty   | Remote URL to `owner/name`: which repository receives the issues for that remote.  |
+| `file_deferred_findings.review`       | `string` | `off`   | `off`, or `github-issue` to file review findings that ship unfixed.                    |
+| `file_deferred_findings.min_severity` | `string` | unset   | Optional floor: `error`, `warning`, or `info`; unset files every severity.             |
+| `file_deferred_findings.min_impact`   | `string` | unset   | Optional floor: `high`, `medium`, or `low`; unset files every impact, including unassessed. |
+| `file_deferred_findings.issue_repos`  | `object` | empty   | Remote URL to `owner/name`: which repository receives the issues for that remote.     |
 
 ```yaml
 file_deferred_findings:
   review: github-issue
+  min_severity: warning
+  min_impact: medium
   issue_repos:
     git@bitbucket.org:team/actor.git: your-name/actor-defects
 ```
 
-With `review: github-issue`, the Review step files one issue for each finding that is still outstanding when the step completes, is approved, or is skipped. This covers a warning you accepted at the gate and an `info` finding that never parks at all. A finding that a fix round repaired is not filed.
+With `review: github-issue`, the Review step files findings that are still outstanding when the step completes, is approved, or is skipped. This covers a warning you accepted at the gate and an `info` finding that never parks at all. A finding that a fix round repaired is not filed. The optional `min_severity` and `min_impact` floors are inclusive: only findings at or above each configured floor are filed. When `min_impact` is set, an unassessed impact does not meet it. With both floors unset, filing behavior is unchanged.
 
 Each issue carries a first triage: the finding text, its severity, one `high`/`medium`/`low` impact judgement with a one-line reason, the run, branch and commit it came from, and how it was deferred. Labels are `defect`, `severity:<grade>`, and `impact:<level>`. A missing label is created and an existing label is never overwritten.
 

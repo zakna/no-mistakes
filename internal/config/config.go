@@ -234,8 +234,8 @@ type GlobalConfig struct {
 	// AutoFixMinSeverity narrows which findings the automatic fix loop may
 	// fix; a repo value overrides it field by field, like AutoFix.
 	AutoFixMinSeverity AutoFixMinSeverityRaw
-	// FileDeferredFindings turns deferred-finding issue filing on and holds
-	// the operator's issue-repository overrides (see FileDeferredFindingsRaw).
+	// FileDeferredFindings holds the operator defaults for deferred-finding
+	// issue filing and its issue-repository overrides (see FileDeferredFindingsRaw).
 	FileDeferredFindings FileDeferredFindingsRaw
 	// CI is the operator's own CI-step floor. It is the only place the rerun
 	// budget can be set for a repository whose default branch this machine's
@@ -384,8 +384,8 @@ type RepoConfig struct {
 	// PublishIntent, and Appendix trusted-only.
 	AutoFix            AutoFixRaw            `yaml:"auto_fix"`
 	AutoFixMinSeverity AutoFixMinSeverityRaw `yaml:"auto_fix_min_severity"`
-	// FileDeferredFindings carries only the repository's filing mode; the
-	// issue-repository map is global-only (see FileDeferredFindingsRaw).
+	// FileDeferredFindings carries the repository's filing mode and optional
+	// thresholds; the issue-repository map is global-only (see FileDeferredFindingsRaw).
 	FileDeferredFindings RepoFileDeferredFindingsRaw `yaml:"file_deferred_findings"`
 	CI                   CIRaw                       `yaml:"ci"`
 	// Rebase is gate-control: EffectiveRepoConfig keeps it trusted-only so a
@@ -2880,7 +2880,7 @@ func parseRepoConfig(data []byte) (*RepoConfig, error) {
 	if err := validateAutoFixMinSeverityRaw(cfg.AutoFixMinSeverity); err != nil {
 		return nil, fmt.Errorf("parse repo config: %w", err)
 	}
-	if err := validateFileDeferredFindingsMode(cfg.FileDeferredFindings.Review); err != nil {
+	if err := validateRepoFileDeferredFindingsRaw(cfg.FileDeferredFindings); err != nil {
 		return nil, fmt.Errorf("parse repo config: %w", err)
 	}
 	cfg.PR.BaseBranch = strings.TrimSpace(cfg.PR.BaseBranch)

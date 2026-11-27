@@ -76,13 +76,15 @@ func (f *fakeIssues) CanFileIssues(_ context.Context, _ string) (bool, error) {
 }
 
 type fakeImpact struct {
-	result map[string]Assessment
-	err    error
-	calls  int
+	result   map[string]Assessment
+	err      error
+	calls    int
+	findings []types.Finding
 }
 
-func (f *fakeImpact) AssessImpact(_ context.Context, _ []types.Finding) (map[string]Assessment, error) {
+func (f *fakeImpact) AssessImpact(_ context.Context, findings []types.Finding) (map[string]Assessment, error) {
 	f.calls++
+	f.findings = append(f.findings, findings...)
 	return f.result, f.err
 }
 
@@ -329,6 +331,67 @@ func TestFile_EmptyBatchDoesNothing(t *testing.T) {
 	if len(results) != 0 || len(store.recorded) != 0 || impact.calls != 0 || issues.permCalls != 0 {
 		t.Fatalf("an empty batch must touch nothing: results=%v recorded=%v impact=%d perm=%d",
 			results, store.recorded, impact.calls, issues.permCalls)
+	}
+}
+
+func TestFile_MinimumSeveritySkipsLessSevereFindingsBeforeAssessment(t *testing.T) {
+	store, issues := newFakeStore(), &fakeIssues{permission: true}
+	impact := &fakeImpact{result: map[string]Assessment{"warning": {Impact: ImpactMedium}}}
+	filer := &Filer{Store: store, Issues: issues, Impact: impact}
+	req := request(
+		types.Finding{ID: "info", Severity: types.FindingSeverityInfo, Description: "informational"},
+		warning("warning", "a.go", "warning finding"),
+	)
+	req.MinSeverity = types.FindingSeverityWarning
+
+	results := filer.File(context.Background(), req)
+
+	if len(results) != 2 || results[0].Outcome != db.DeferredIssueSkipped || results[1].Outcome != db.DeferredIssueCreated {
+		t.Fatalf("results = %+v, want the info finding skipped and the warning filed", results)
+	}
+	if len(issues.created) != 1 || impact.calls != 1 || len(impact.findings) != 1 || impact.findings[0].ID != "warning" {
+		t.Fatalf("created=%d impact calls=%d findings=%+v, want only warning assessed and filed", len(issues.created), impact.calls, impact.findings)
+	}
+	if !strings.Contains(results[0].Detail, "configured minimum warning") {
+		t.Fatalf("filtered result detail = %q, want the configured severity", results[0].Detail)
+	}
+}
+
+func TestFile_MinimumImpactSkipsLowAndUnassessedFindings(t *testing.T) {
+	store, issues := newFakeStore(), &fakeIssues{permission: true}
+	impact := &fakeImpact{result: map[string]Assessment{
+		"low":    {Impact: ImpactLow},
+		"medium": {Impact: ImpactMedium},
+	}}
+	filer := &Filer{Store: store, Issues: issues, Impact: impact}
+	req := request(
+		warning("low", "low.go", "low impact"),
+		warning("medium", "medium.go", "medium impact"),
+		warning("unassessed", "unknown.go", "unassessed impact"),
+	)
+	req.MinImpact = ImpactMedium
+
+	results := filer.File(context.Background(), req)
+
+	if len(results) != 3 || results[0].Outcome != db.DeferredIssueSkipped || results[1].Outcome != db.DeferredIssueCreated || results[2].Outcome != db.DeferredIssueSkipped {
+		t.Fatalf("results = %+v, want low and unassessed skipped, medium filed", results)
+	}
+	if len(issues.created) != 1 || !strings.Contains(results[0].Detail, "minimum medium") || results[2].Impact != ImpactUnassessed {
+		t.Fatalf("created=%d results=%+v, want one medium issue and explicit unassessed skip", len(issues.created), results)
+	}
+}
+
+func TestFile_UnsetThresholdsKeepExistingUnfilteredBehavior(t *testing.T) {
+	store, issues := newFakeStore(), &fakeIssues{permission: true}
+	impact := &fakeImpact{result: map[string]Assessment{"1": {Impact: ImpactLow}}}
+	filer := &Filer{Store: store, Issues: issues, Impact: impact}
+
+	results := filer.File(context.Background(), request(types.Finding{
+		ID: "1", Severity: types.FindingSeverityInfo, Description: "low-impact informational finding",
+	}))
+
+	if len(results) != 1 || results[0].Outcome != db.DeferredIssueCreated || len(issues.created) != 1 {
+		t.Fatalf("results = %+v, created=%d, want the low-impact info finding filed without thresholds", results, len(issues.created))
 	}
 }
 

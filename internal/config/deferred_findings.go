@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
 // Modes for file_deferred_findings.review. An empty value means "not set",
@@ -26,23 +28,33 @@ const (
 // whose pipeline pushes to a non-GitHub forge (Bitbucket, for example) still
 // track its defects on GitHub.
 type FileDeferredFindingsRaw struct {
-	Review string `yaml:"review"`
+	Review      string `yaml:"review"`
+	MinSeverity string `yaml:"min_severity"`
+	MinImpact   string `yaml:"min_impact"`
 	// IssueRepos maps a repository's upstream remote URL to the "owner/name"
 	// GitHub slug that receives its deferred finding issues.
 	IssueRepos map[string]string `yaml:"issue_repos"`
 }
 
 // RepoFileDeferredFindingsRaw is the YAML representation of the same settings
-// in a repository's .no-mistakes.yaml. Only the mode is honored there; see
-// FileDeferredFindingsRaw for why the issue-repository map is global-only.
+// in a repository's .no-mistakes.yaml. The issue-repository map remains
+// global-only; filing mode and thresholds may be set per repository.
 type RepoFileDeferredFindingsRaw struct {
-	Review string `yaml:"review"`
+	Review      string `yaml:"review"`
+	MinSeverity string `yaml:"min_severity"`
+	MinImpact   string `yaml:"min_impact"`
 }
 
 // FileDeferredFindings is the resolved deferred-finding filing config.
 type FileDeferredFindings struct {
 	// Review is FileDeferredFindingsOff or FileDeferredFindingsGitHubIssue.
 	Review string
+	// MinSeverity excludes findings below this severity when filing. Empty
+	// keeps every severity.
+	MinSeverity string
+	// MinImpact excludes findings below this assessed impact when filing.
+	// Empty keeps every impact, including unassessed findings.
+	MinImpact string
 	// IssueRepos maps upstream remote URL to "owner/name". Nil when unset.
 	IssueRepos map[string]string
 }
@@ -69,6 +81,9 @@ func normalizeFileDeferredFindingsMode(mode string) string {
 // filing time where it is reported as a skipped defect.
 func validateFileDeferredFindingsRaw(raw FileDeferredFindingsRaw) error {
 	if err := validateFileDeferredFindingsMode(raw.Review); err != nil {
+		return err
+	}
+	if err := validateFileDeferredFindingsThresholds(raw.MinSeverity, raw.MinImpact); err != nil {
 		return err
 	}
 	for remote, slug := range raw.IssueRepos {
@@ -98,10 +113,28 @@ func isIssueRepoSlug(value string) bool {
 	return true
 }
 
+// validateRepoFileDeferredFindingsRaw validates repository-owned filing mode
+// and threshold values. The issue-repository map is not part of this type.
+func validateRepoFileDeferredFindingsRaw(raw RepoFileDeferredFindingsRaw) error {
+	if err := validateFileDeferredFindingsMode(raw.Review); err != nil {
+		return err
+	}
+	return validateFileDeferredFindingsThresholds(raw.MinSeverity, raw.MinImpact)
+}
+
+func validateFileDeferredFindingsThresholds(minSeverity, minImpact string) error {
+	if value := strings.TrimSpace(minSeverity); value != "" && !types.IsKnownFindingSeverity(value) {
+		return fmt.Errorf("file_deferred_findings.min_severity: %q is not valid (want error, warning, or info)", minSeverity)
+	}
+	if value := strings.ToLower(strings.TrimSpace(minImpact)); value != "" && value != "high" && value != "medium" && value != "low" {
+		return fmt.Errorf("file_deferred_findings.min_impact: %q is not valid (want high, medium, or low)", minImpact)
+	}
+	return nil
+}
+
 // resolveFileDeferredFindings merges the global block with the repository's
-// mode. The mode follows the same global-then-repo overlay as auto_fix: a
-// repository may switch filing on or off for itself, and an unset value at
-// both levels leaves the feature off.
+// mode and thresholds. A repository may override each field independently;
+// unset thresholds leave filing unfiltered.
 func resolveFileDeferredFindings(global FileDeferredFindingsRaw, repo RepoFileDeferredFindingsRaw) FileDeferredFindings {
 	resolved := FileDeferredFindings{Review: FileDeferredFindingsOff}
 	if mode := normalizeFileDeferredFindingsMode(global.Review); mode != "" {
@@ -110,6 +143,14 @@ func resolveFileDeferredFindings(global FileDeferredFindingsRaw, repo RepoFileDe
 	if mode := normalizeFileDeferredFindingsMode(repo.Review); mode != "" {
 		resolved.Review = mode
 	}
+	resolved.MinSeverity = normalizeFileDeferredFindingsSeverity(global.MinSeverity)
+	if severity := normalizeFileDeferredFindingsSeverity(repo.MinSeverity); severity != "" {
+		resolved.MinSeverity = severity
+	}
+	resolved.MinImpact = normalizeFileDeferredFindingsImpact(global.MinImpact)
+	if impact := normalizeFileDeferredFindingsImpact(repo.MinImpact); impact != "" {
+		resolved.MinImpact = impact
+	}
 	if len(global.IssueRepos) > 0 {
 		resolved.IssueRepos = make(map[string]string, len(global.IssueRepos))
 		for remote, slug := range global.IssueRepos {
@@ -117,6 +158,14 @@ func resolveFileDeferredFindings(global FileDeferredFindingsRaw, repo RepoFileDe
 		}
 	}
 	return resolved
+}
+
+func normalizeFileDeferredFindingsSeverity(severity string) string {
+	return types.NormalizeFindingSeverity(severity)
+}
+
+func normalizeFileDeferredFindingsImpact(impact string) string {
+	return strings.ToLower(strings.TrimSpace(impact))
 }
 
 // FilesDeferredReviewFindings reports whether a completed review step must file
